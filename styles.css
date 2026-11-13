@@ -1,8 +1,347 @@
-/*
+.hub3d-root {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	padding: 0 !important;
+	margin: 0 !important;
+	overflow: hidden !important;
+	background: var(--background-primary);
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: none;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.hub3d-canvas-host {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+}
 
-If your plugin does not need CSS, delete this file.
+.hub3d-canvas {
+	display: block;
+	width: 100%;
+	height: 100%;
+	touch-action: none;
+}
 
-*/
+.hub3d-overlay-layer {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	overflow: hidden;
+}
+
+.hub3d-node-inspect-badge {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	border-radius: 6px;
+	border: 1px solid rgba(156, 131, 232, 0.55);
+	background: rgba(28, 30, 40, 0.9);
+	color: #bcaaf0;
+	font-size: 12px;
+	line-height: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	pointer-events: auto;
+	box-shadow: none;
+	transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.hub3d-node-inspect-badge:hover {
+	background: #9c83e8;
+	color: #141619;
+	border-color: #9c83e8;
+}
+
+.hub3d-top-island {
+	position: absolute;
+	top: 14px;
+	left: 16px;
+	z-index: 20;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 12px;
+	border-radius: 999px;
+	border: 1px solid var(--background-modifier-border);
+	background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	box-shadow: 0 4px 18px rgba(0, 0, 0, 0.24);
+}
+
+.hub3d-crumb-btn {
+	height: 24px;
+	padding: 0 8px;
+	border-radius: 999px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 0.82em;
+	font-weight: 600;
+	cursor: pointer;
+	box-shadow: none;
+	transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.hub3d-crumb-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.hub3d-crumb-btn.is-current {
+	color: var(--text-normal);
+	font-weight: 700;
+	background: rgba(156, 131, 232, 0.14);
+}
+
+.hub3d-crumb-btn.is-drop-hover {
+	background: #4aab80 !important;
+	color: #141619 !important;
+	font-weight: 700;
+	transform: scale(1.06);
+}
+
+.hub3d-back-btn {
+	padding: 0 7px;
+	color: var(--text-normal);
+}
+
+.hub3d-crumb-sep {
+	color: var(--text-faint);
+	font-size: 0.82em;
+}
+
+.hub3d-crumb-meta {
+	margin-left: 4px;
+	padding-left: 8px;
+	border-left: 1px solid var(--background-modifier-border);
+	font-size: 0.76em;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.hub3d-trash-zone {
+	position: absolute;
+	bottom: 18px;
+	left: 18px;
+	z-index: 25;
+	width: 42px;
+	height: 42px;
+	border-radius: 50%;
+	border: 1px solid var(--background-modifier-border);
+	background: color-mix(in srgb, var(--background-secondary) 80%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	color: var(--text-muted);
+	font-size: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+	transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+}
+
+.hub3d-trash-zone.is-armed {
+	border-color: rgba(216, 91, 87, 0.65);
+	color: #d85b57;
+	transform: scale(1.08);
+}
+
+.hub3d-trash-zone.is-over {
+	background: #d85b57;
+	border-color: #d85b57;
+	color: #141619;
+	transform: scale(1.22);
+	box-shadow: 0 8px 26px rgba(216, 91, 87, 0.48);
+}
+
+.hub3d-outside-zone {
+	position: absolute;
+	bottom: 18px;
+	right: 18px;
+	z-index: 25;
+	height: 42px;
+	padding: 0 15px;
+	border-radius: 999px;
+	border: 1px dashed rgba(156, 131, 232, 0.55);
+	background: color-mix(in srgb, var(--background-secondary) 84%, transparent);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	color: var(--text-muted);
+	font-size: 0.8em;
+	font-weight: 650;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	opacity: 0;
+	pointer-events: none;
+	transform: translateY(8px);
+	transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.hub3d-outside-zone.is-visible {
+	opacity: 1;
+	transform: translateY(0);
+}
+
+.hub3d-outside-zone.is-over {
+	background: #9c83e8;
+	border-style: solid;
+	border-color: #9c83e8;
+	color: #141619;
+	transform: scale(1.08);
+	box-shadow: 0 8px 26px rgba(156, 131, 232, 0.45);
+}
+
+.hub3d-bottom-dock {
+	position: absolute;
+	bottom: 18px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 25;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-radius: 999px;
+	border: 1px solid var(--background-modifier-border);
+	background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+}
+
+.hub3d-dock-btn {
+	height: 30px;
+	padding: 0 13px;
+	border-radius: 999px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--text-normal);
+	font-size: 0.82em;
+	font-weight: 650;
+	cursor: pointer;
+	box-shadow: none;
+	white-space: nowrap;
+	transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+
+.hub3d-dock-btn:hover {
+	background: var(--background-modifier-hover);
+}
+
+.hub3d-dock-btn.is-primary {
+	background: #9c83e8;
+	color: #141619;
+	font-weight: 700;
+}
+
+.hub3d-dock-btn.is-primary:hover {
+	background: #ad97f0;
+}
+
+.hub3d-dock-btn.is-active:not(.is-primary) {
+	background: rgba(156, 131, 232, 0.18);
+	border-color: #9c83e8;
+	color: #bcaaf0;
+}
+
+.hub3d-dock-popover {
+	position: absolute;
+	bottom: 68px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 30;
+	width: min(360px, calc(100vw - 32px));
+	padding: 13px 14px;
+	border-radius: 16px;
+	border: 1px solid var(--background-modifier-border);
+	background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+
+.hub3d-dock-popover.is-hidden {
+	display: none;
+}
+
+.hub3d-pop-header {
+	font-size: 0.86em;
+	font-weight: 750;
+	color: var(--text-normal);
+}
+
+.hub3d-pop-sub {
+	font-size: 0.76em;
+	color: var(--text-muted);
+}
+
+.hub3d-pop-input {
+	width: 100%;
+	height: 32px;
+	padding: 4px 10px;
+	border-radius: 8px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: 0.84em;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.hub3d-pop-input:focus {
+	border-color: #9c83e8;
+	outline: none;
+}
+
+.hub3d-pop-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 5px;
+}
+
+.hub3d-pop-chip {
+	height: 24px;
+	padding: 0 9px;
+	border-radius: 999px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 0.74em;
+	font-weight: 600;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.hub3d-pop-chip:hover {
+	color: var(--text-normal);
+	border-color: #9c83e8;
+}
+
+.hub3d-pop-chip.is-selected {
+	background: rgba(156, 131, 232, 0.22);
+	border-color: #9c83e8;
+	color: var(--text-normal);
+	font-weight: 700;
+}
+
+.hub3d-pop-actions {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+	margin-top: 2px;
+}

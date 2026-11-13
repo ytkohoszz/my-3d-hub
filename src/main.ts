@@ -1,114 +1,87 @@
-import {
-	Editor,
-	MarkdownView,
-	MarkdownFileInfo,
-	Modal,
-	Notice,
-	Plugin,
-} from 'obsidian';
-import {
-	DEFAULT_SETTINGS,
-	MyPluginSettings,
-	SampleSettingTab,
-} from './settings';
+import { Plugin, TAbstractFile, TFile, WorkspaceLeaf } from "obsidian";
+import { Vault3DScanner } from "./scanner";
+import { DEFAULT_SETTINGS, Hub3DSettings } from "./types";
+import { Hub3DView, VIEW_TYPE_3D_HUB } from "./view";
 
-// Remember to rename these classes and interfaces!
+export default class Hub3DPlugin extends Plugin {
+	public settings: Hub3DSettings = { ...DEFAULT_SETTINGS };
+	public scanner!: Vault3DScanner;
+	private refreshTimer: number | null = null;
 
-export default class MyPlugin extends Plugin {
-	settings!: MyPluginSettings;
-
-	async onload() {
+	public async onload(): Promise<void> {
 		await this.loadSettings();
+		this.scanner = new Vault3DScanner(this.app);
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (_evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.registerView(VIEW_TYPE_3D_HUB, (leaf) => new Hub3DView(leaf, this));
+
+		this.addRibbonIcon("box", "Открыть 3D Spatial Hub", () => {
+			void this.activateView();
 		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
+			id: "open-3d-spatial-hub",
+			name: "Открыть холст 3D Spatial Hub",
 			callback: () => {
-				new SampleModal(this.app).open();
-			},
+				void this.activateView();
+			}
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (
-				editor: Editor,
-				_ctx: MarkdownView | MarkdownFileInfo,
-			) => {
-				editor.replaceSelection('Sample editor command');
-			},
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView =
-					this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		this.registerEvent(
+			this.app.metadataCache.on("changed", (file) => {
+				if (file.extension === "md") this.scheduleRefresh();
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("delete", (file: TAbstractFile) => {
+				if (file instanceof TFile && file.extension === "md") this.scheduleRefresh();
+			})
+		);
+
+		this.registerEvent(
+			this.app.vault.on("rename", (file: TAbstractFile) => {
+				if (file instanceof TFile && file.extension === "md") this.scheduleRefresh();
+			})
+		);
+	}
+
+	public onunload(): void {
+		if (this.refreshTimer !== null) {
+			window.clearTimeout(this.refreshTimer);
+		}
+	}
+
+	public async activateView(): Promise<void> {
+		const { workspace } = this.app;
+		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(VIEW_TYPE_3D_HUB)[0] || null;
+
+		if (!leaf) {
+			leaf = workspace.getLeaf("tab");
+			await leaf.setViewState({ type: VIEW_TYPE_3D_HUB, active: true });
+		}
+		workspace.revealLeaf(leaf);
+	}
+
+	public scheduleRefresh(): void {
+		if (this.refreshTimer !== null) {
+			window.clearTimeout(this.refreshTimer);
+		}
+		this.refreshTimer = window.setTimeout(() => {
+			this.refreshTimer = null;
+			for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_3D_HUB)) {
+				if (leaf.view instanceof Hub3DView) {
+					leaf.view.refresh();
 				}
-				return false;
-			},
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(activeDocument, 'click', (_evt: MouseEvent) => {
-			new Notice('Click');
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000),
-		);
+			}
+		}, 120);
 	}
 
-	onunload() {}
-
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			(await this.loadData()) as Partial<MyPluginSettings>,
-		);
+	public async loadSettings(): Promise<void> {
+		const loaded = await this.loadData();
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 	}
 
-	async saveSettings() {
+	public async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	onOpen() {
-		const { contentEl } = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const { contentEl } = this;
-		contentEl.empty();
 	}
 }
