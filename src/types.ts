@@ -98,6 +98,60 @@ export function getProgramColor(name: string): string {
 return PROGRAM_COLORS[name] || "#9c83e8";
 }
 
+export function getTopicAccentColor(baseHex: string, seed: string): string {
+const clean = baseHex.replace("#", "");
+if (clean.length !== 6) return baseHex;
+
+const r = parseInt(clean.slice(0, 2), 16) / 255;
+const g = parseInt(clean.slice(2, 4), 16) / 255;
+const b = parseInt(clean.slice(4, 6), 16) / 255;
+
+const max = Math.max(r, g, b);
+const min = Math.min(r, g, b);
+let h = 0;
+let s = 0;
+const l = (max + min) / 2;
+
+if (max !== min) {
+const d = max - min;
+s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+else if (max === g) h = (b - r) / d + 2;
+else h = (r - g) / d + 4;
+h /= 6;
+}
+
+let hash = 2166136261;
+for (let i = 0; i < seed.length; i++) {
+hash ^= seed.charCodeAt(i);
+hash = Math.imul(hash, 16777619);
+}
+
+const hueShift = (((hash >>> 0) % 68) - 34) / 360;
+const satShift = ((((hash >>> 8) % 16) - 8) / 100);
+const lightShift = ((((hash >>> 16) % 12) - 5) / 100);
+
+const nh = (h + hueShift + 1) % 1;
+const ns = Math.max(0.35, Math.min(0.88, s + satShift));
+const nl = Math.max(0.50, Math.min(0.72, l + lightShift));
+
+const hue2rgb = (p: number, q: number, t: number): number => {
+let tt = t;
+if (tt < 0) tt += 1;
+if (tt > 1) tt -= 1;
+if (tt < 1 / 6) return p + (q - p) * 6 * tt;
+if (tt < 1 / 2) return q;
+if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6;
+return p;
+};
+
+const q = nl < 0.5 ? nl * (1 + ns) : nl + ns - nl * ns;
+const p = 2 * nl - q;
+const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, "0");
+
+return `#${toHex(hue2rgb(p, q, nh + 1 / 3))}${toHex(hue2rgb(p, q, nh))}${toHex(hue2rgb(p, q, nh - 1 / 3))}`;
+}
+
 export function topicParts(value: string): string[] {
 return String(value || "")
 .split("/")

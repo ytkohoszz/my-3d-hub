@@ -1,4 +1,4 @@
-import { BubbleLink, Note3D, VirtualTopicEntry, getProgramColor, topicParts } from "./types";
+import { BubbleLink, Note3D, VirtualTopicEntry, getProgramColor, getTopicAccentColor, topicParts } from "./types";
 
 export interface NavLevel {
 	program: string | null;
@@ -6,6 +6,7 @@ export interface NavLevel {
 }
 
 const JELLY_SEGMENTS = 24;
+const CLUSTER_SEGMENTS = 36;
 
 export interface BubbleNode {
 	id: string;
@@ -35,10 +36,15 @@ interface ClusterGroup {
 	key: string;
 	title: string;
 	nodes: BubbleNode[];
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
+	cx: number;
+	cy: number;
+	radii: Float32Array;
+	radialVels: Float32Array;
+	phase: number;
+	headerX: number;
+	headerY: number;
+	headerW: number;
+	headerH: number;
 	color: string;
 }
 
@@ -112,11 +118,13 @@ private trashZoneEl: HTMLElement | null = null;
 	private dropHoverBubble: BubbleNode | null = null;
 	private noteHalfHeights = new Map<string, number>();
 
-	private rafId: number | null = null;
+private rafId: number | null = null;
 	private lastTime = 0;
+	private animTimeSec = 0;
 	private width = 0;
 	private height = 0;
-	private dpr = 1;
+private dpr = 1;
+	private uiFontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 	private resizeObserver: ResizeObserver;
 
 	private actionBadges = new Map<string, HTMLElement>();
@@ -398,14 +406,14 @@ nextNodes.push(this.createNode({
 				}
 				const subList = Array.from(subFolders).slice(0, 2);
 
-				nextNodes.push(this.createNode({
+nextNodes.push(this.createNode({
 					id,
 					kind: "topic",
 					label: topicName,
 					subLabel: `${tNotes.length} зам.`,
 					detailLine: subList.length ? `📁 ${subList.join(", ")}` : "",
 					count: tNotes.length,
-					color: progColor,
+					color: getTopicAccentColor(progColor, topicName),
 					radius,
 					x: pos.x,
 					y: pos.y,
@@ -484,14 +492,14 @@ nextNodes.push(this.createNode({
 				const id = `folder::${prog}::${fullPath}`;
 				const radius = this.calcBubbleRadius(fNotes.size, 44, 70);
 				const pos = this.getInitialPos(id, idx, folderEntries.length, 150);
-				nextNodes.push(this.createNode({
+nextNodes.push(this.createNode({
 					id,
 					kind: "folder",
 					label: folderName,
 					subLabel: `${fNotes.size} зам.`,
 					detailLine: "папка",
 					count: fNotes.size,
-					color: progColor,
+					color: getTopicAccentColor(progColor, fullPath),
 					radius,
 					x: pos.x,
 					y: pos.y,
@@ -563,12 +571,27 @@ private createNode(
 		return Math.min(maxR, Math.max(minR, scaled));
 	}
 
-	private getInitialPos(id: string, index: number, total: number, ringRadius: number): { x: number; y: number } {
+private getInitialPos(id: string, index: number, total: number, ringRadius: number): { x: number; y: number } {
 		const saved = this.savedPositions[id];
 		if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
 			return { x: saved.x, y: saved.y };
 		}
 		if (total <= 1) return { x: 0, y: 0 };
+
+		if (total > 7) {
+			const innerCount = Math.min(5, Math.floor(total / 2));
+			if (index < innerCount) {
+				const angle = (index / innerCount) * Math.PI * 2 - Math.PI / 2;
+				const r = ringRadius * 0.95;
+				return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+			}
+			const outerIdx = index - innerCount;
+			const outerCount = total - innerCount;
+			const angle = (outerIdx / outerCount) * Math.PI * 2 - Math.PI / 2 + Math.PI / outerCount;
+			const r = ringRadius * 1.92 + (outerIdx % 2 === 0 ? 12 : -12);
+			return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+		}
+
 		const angle = (index / total) * Math.PI * 2 - Math.PI / 2;
 		const jitter = (index % 2 === 0 ? 1 : -1) * 14;
 		return {
@@ -595,6 +618,7 @@ private createNode(
 			}
 		}
 
+const prevByKey = new Map(this.clusters.map((c) => [c.key, c]));
 		const visited = new Set<string>();
 		const nextClusters: ClusterGroup[] = [];
 		let autoIdx = 1;
@@ -628,14 +652,20 @@ private createNode(
 				const customTitle = this.clusterNames[key];
 				const title = customTitle || `Блок ${autoIdx++}`;
 
+const prev = prevByKey.get(key);
 				nextClusters.push({
 					key,
 					title,
 					nodes: comp,
-					minX: 0,
-					minY: 0,
-					maxX: 0,
-					maxY: 0,
+					cx: prev?.cx ?? 0,
+					cy: prev?.cy ?? 0,
+					radii: prev?.radii ?? new Float32Array(CLUSTER_SEGMENTS),
+					radialVels: prev?.radialVels ?? new Float32Array(CLUSTER_SEGMENTS),
+					phase: prev?.phase ?? autoIdx * 1.17,
+					headerX: prev?.headerX ?? 0,
+					headerY: prev?.headerY ?? 0,
+					headerW: prev?.headerW ?? 96,
+					headerH: prev?.headerH ?? 24,
 					color: comp[0]?.color || "#9c83e8"
 				});
 			}
@@ -667,11 +697,16 @@ private createNode(
 		}
 	}
 
-	private handleResize(): void {
+private handleResize(): void {
 		const rect = this.host.getBoundingClientRect();
 		this.width = Math.max(1, rect.width);
 		this.height = Math.max(1, rect.height);
 		this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+		const computedFont = getComputedStyle(this.host).fontFamily;
+		if (computedFont && !computedFont.includes("var(")) {
+			this.uiFontFamily = computedFont;
+		}
 
 		this.canvas.width = Math.round(this.width * this.dpr);
 		this.canvas.height = Math.round(this.height * this.dpr);
@@ -705,19 +740,63 @@ private createNode(
 		return null;
 	}
 
-	private hitTestClusterHeader(wx: number, wy: number): ClusterGroup | null {
+private hitTestClusterHeader(wx: number, wy: number): ClusterGroup | null {
 		for (let i = this.clusters.length - 1; i >= 0; i--) {
 			const c = this.clusters[i];
 			if (!c) continue;
-			const headerW = Math.max(96, c.title.length * 8 + 26);
-			const headerH = 24;
-			const hx = c.minX + 12;
-			const hy = c.minY - 12;
-			if (wx >= hx && wx <= hx + headerW && wy >= hy && wy <= hy + headerH) {
+			if (
+				wx >= c.headerX &&
+				wx <= c.headerX + c.headerW &&
+				wy >= c.headerY &&
+				wy <= c.headerY + c.headerH
+			) {
 				return c;
 			}
 		}
 		return null;
+	}
+
+private getLinkPoints(a: BubbleNode, b: BubbleNode, seed: number): Array<{ x: number; y: number }> {
+		const dx = b.x - a.x;
+		const dy = b.y - a.y;
+		const dist = Math.hypot(dx, dy) || 0.001;
+		const tx = dx / dist;
+		const ty = dy / dist;
+		const nx = -ty;
+		const ny = tx;
+
+		const startPad = a.kind === "note" ? 36 : Math.max(0, a.radius - 4);
+		const endPad = b.kind === "note" ? 36 : Math.max(0, b.radius - 4);
+
+		let sx = a.x;
+		let sy = a.y;
+		let ex = b.x;
+		let ey = b.y;
+		if (dist > startPad + endPad + 12) {
+			sx = a.x + tx * startPad;
+			sy = a.y + ty * startPad;
+			ex = b.x - tx * endPad;
+			ey = b.y - ty * endPad;
+		}
+
+		const span = Math.hypot(ex - sx, ey - sy);
+		const amp = Math.min(24, Math.max(8, span * 0.16));
+		const steps = 10;
+		const pts: Array<{ x: number; y: number }> = [];
+
+		for (let i = 0; i <= steps; i++) {
+			const t = i / steps;
+			const env = Math.sin(t * Math.PI);
+			const wave =
+				Math.sin(t * Math.PI * 2 + this.animTimeSec * 2.1 + seed * 1.37) * 0.68 +
+				Math.cos(t * Math.PI * 1.2 - this.animTimeSec * 1.45 + seed * 2.13) * 0.32;
+			const offset = env * amp * wave;
+			pts.push({
+				x: sx + (ex - sx) * t + nx * offset,
+				y: sy + (ey - sy) * t + ny * offset
+			});
+		}
+		return pts;
 	}
 
 	private hitTestLink(wx: number, wy: number): number {
@@ -729,8 +808,14 @@ private createNode(
 			const b = nodeMap.get(l.to);
 			if (!a || !b) continue;
 
-			const dist = this.pointToSegmentDist(wx, wy, a.x, a.y, b.x, b.y);
-			if (dist <= 9) return i;
+			const pts = this.getLinkPoints(a, b, i + 1);
+			for (let p = 0; p < pts.length - 1; p++) {
+				const p0 = pts[p]!;
+				const p1 = pts[p + 1]!;
+				if (this.pointToSegmentDist(wx, wy, p0.x, p0.y, p1.x, p1.y) <= 10) {
+					return i;
+				}
+			}
 		}
 		return -1;
 	}
@@ -1036,7 +1121,8 @@ const canTrash =
 		this.rafId = requestAnimationFrame(tick);
 	}
 
-	private stepPhysics(timeSec: number, dt: number): void {
+private stepPhysics(timeSec: number, dt: number): void {
+		this.animTimeSec = timeSec;
 		const camLerp = 1 - Math.pow(0.001, dt);
 		this.camX += (this.targetCamX - this.camX) * camLerp;
 		this.camY += (this.targetCamY - this.camY) * camLerp;
@@ -1195,22 +1281,78 @@ const canTrash =
 			}
 		}
 
-		// 4. Обновление границ смысловых блоков (кластеров)
+// 4. Обновление органической пузырчатой оболочки смысловых блоков
 		for (const c of this.clusters) {
-			let minX = Infinity;
-			let minY = Infinity;
-			let maxX = -Infinity;
-			let maxY = -Infinity;
+			if (c.nodes.length === 0) continue;
+
+			let sumX = 0;
+			let sumY = 0;
 			for (const m of c.nodes) {
-				minX = Math.min(minX, m.x - m.radius - 22);
-				minY = Math.min(minY, m.y - m.radius - 26);
-				maxX = Math.max(maxX, m.x + m.radius + 22);
-				maxY = Math.max(maxY, m.y + m.radius + 22);
+				sumX += m.x;
+				sumY += m.y;
 			}
-			c.minX = minX;
-			c.minY = minY;
-			c.maxX = maxX;
-			c.maxY = maxY;
+			const targetCx = sumX / c.nodes.length;
+			const targetCy = sumY / c.nodes.length;
+			const isFirstFrame = (c.radii[0] ?? 0) <= 1;
+
+			if (isFirstFrame) {
+				c.cx = targetCx;
+				c.cy = targetCy;
+			} else {
+				const centerLerp = 1 - Math.pow(0.002, dt);
+				c.cx += (targetCx - c.cx) * centerLerp;
+				c.cy += (targetCy - c.cy) * centerLerp;
+			}
+
+			// Вычисляем полярную огибающую вокруг центра кластера
+			const rawTargets = new Float32Array(CLUSTER_SEGMENTS);
+			for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
+				const theta = (k / CLUSTER_SEGMENTS) * Math.PI * 2;
+				const ux = Math.cos(theta);
+				const uy = Math.sin(theta);
+
+				let maxExtent = 64;
+				for (const m of c.nodes) {
+					const dx = m.x - c.cx;
+					const dy = m.y - c.cy;
+					const memberPad = m.kind === "note" ? 116 : m.radius + 32;
+					const extent = dx * ux + dy * uy + memberPad;
+					if (extent > maxExtent) maxExtent = extent;
+				}
+
+				const wave =
+					Math.sin(timeSec * 1.45 + c.phase + k * 0.52) * 4.2 +
+					Math.cos(timeSec * 0.95 - c.phase + k * 0.87) * 2.8;
+				rawTargets[k] = maxExtent + wave;
+			}
+
+			// Двухпроходное круговое сглаживание, чтобы оболочка плавно расплывалась
+			const smoothTargets = new Float32Array(CLUSTER_SEGMENTS);
+			for (let pass = 0; pass < 2; pass++) {
+				const src = pass === 0 ? rawTargets : smoothTargets;
+				const dst = pass === 0 ? smoothTargets : rawTargets;
+				for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
+					const prev = src[(k - 1 + CLUSTER_SEGMENTS) % CLUSTER_SEGMENTS] ?? 0;
+					const curr = src[k] ?? 0;
+					const next = src[(k + 1) % CLUSTER_SEGMENTS] ?? 0;
+					dst[k] = prev * 0.25 + curr * 0.5 + next * 0.25;
+				}
+			}
+
+			for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
+				const targetR = rawTargets[k] ?? 64;
+				if (isFirstFrame) {
+					c.radii[k] = targetR;
+					c.radialVels[k] = 0;
+				} else {
+					const curR = c.radii[k] ?? targetR;
+					const curV = c.radialVels[k] ?? 0;
+					const force = (targetR - curR) * 42;
+					const nextV = (curV + force * dt) * 0.82;
+					c.radialVels[k] = nextV;
+					c.radii[k] = curR + nextV * dt;
+				}
+			}
 		}
 	}
 
@@ -1264,45 +1406,95 @@ const canTrash =
 		}
 	}
 
-	private drawClusterBox(ctx: CanvasRenderingContext2D, cluster: ClusterGroup): void {
-		const w = cluster.maxX - cluster.minX;
-		const h = cluster.maxY - cluster.minY;
-		if (w <= 0 || h <= 0) return;
+private drawClusterBox(ctx: CanvasRenderingContext2D, cluster: ClusterGroup): void {
+		if (cluster.nodes.length === 0) return;
+
+		const ptsX = new Float32Array(CLUSTER_SEGMENTS);
+		const ptsY = new Float32Array(CLUSTER_SEGMENTS);
+		let maxR = 0;
+		let topY = Infinity;
+
+		for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
+			const theta = (k / CLUSTER_SEGMENTS) * Math.PI * 2;
+			const r = Math.max(48, cluster.radii[k] ?? 64);
+			if (r > maxR) maxR = r;
+			const px = cluster.cx + Math.cos(theta) * r;
+			const py = cluster.cy + Math.sin(theta) * r;
+			ptsX[k] = px;
+			ptsY[k] = py;
+			if (py < topY) topY = py;
+		}
 
 		ctx.save();
 		ctx.beginPath();
-		ctx.roundRect(cluster.minX, cluster.minY, w, h, 24);
-		ctx.fillStyle = this.hexToRgba(cluster.color, 0.06);
+		const lastX = ptsX[CLUSTER_SEGMENTS - 1]!;
+		const lastY = ptsY[CLUSTER_SEGMENTS - 1]!;
+		const firstX = ptsX[0]!;
+		const firstY = ptsY[0]!;
+		ctx.moveTo((lastX + firstX) * 0.5, (lastY + firstY) * 0.5);
+
+		for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
+			const nextIdx = (k + 1) % CLUSTER_SEGMENTS;
+			const cx = ptsX[k]!;
+			const cy = ptsY[k]!;
+			const nx = ptsX[nextIdx]!;
+			const ny = ptsY[nextIdx]!;
+			ctx.quadraticCurveTo(cx, cy, (cx + nx) * 0.5, (cy + ny) * 0.5);
+		}
+		ctx.closePath();
+
+		// Полупрозрачное мыльно-стеклянное наполнение внешнего пузыря
+		const grad = ctx.createRadialGradient(
+			cluster.cx - maxR * 0.22,
+			cluster.cy - maxR * 0.24,
+			maxR * 0.08,
+			cluster.cx,
+			cluster.cy,
+			maxR * 1.05
+		);
+		grad.addColorStop(0, this.hexToRgba(cluster.color, 0.09));
+		grad.addColorStop(0.7, this.hexToRgba(cluster.color, 0.03));
+		grad.addColorStop(1, this.hexToRgba(cluster.color, 0.14));
+		ctx.fillStyle = grad;
 		ctx.fill();
 
-		ctx.setLineDash([6, 5]);
-		ctx.lineWidth = 1.4;
-		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.35);
+		// Мягкое внешнее свечение мембраны + чёткий контур
+		ctx.lineWidth = 6;
+		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.08);
 		ctx.stroke();
-		ctx.setLineDash([]);
 
-		// Плашка-заголовок блока (можно перетаскивать весь блок или кликнуть для переименования)
-		ctx.font = "700 12px var(--font-interface, sans-serif)";
-		const labelW = Math.max(78, ctx.measureText(cluster.title).width + 22);
-		const hx = cluster.minX + 12;
-		const hy = cluster.minY - 12;
+		ctx.lineWidth = 1.6;
+		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.45);
+		ctx.stroke();
+
+		// Плашка-заголовок блока по верхнему краю пузыря
+		ctx.font = `700 12px ${this.uiFontFamily}`;
+		const labelW = Math.max(78, ctx.measureText(cluster.title).width + 24);
+		const labelH = 24;
+		const hx = cluster.cx - labelW / 2;
+		const hy = topY - labelH / 2;
+
+		cluster.headerX = hx;
+		cluster.headerY = hy;
+		cluster.headerW = labelW;
+		cluster.headerH = labelH;
 
 		ctx.beginPath();
-		ctx.roundRect(hx, hy, labelW, 24, 999);
-		ctx.fillStyle = "rgba(26, 28, 38, 0.94)";
+		ctx.roundRect(hx, hy, labelW, labelH, 999);
+		ctx.fillStyle = "rgba(22, 24, 33, 0.92)";
 		ctx.fill();
-		ctx.lineWidth = 1.2;
+		ctx.lineWidth = 1.25;
 		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.65);
 		ctx.stroke();
 
 		ctx.fillStyle = "#eceff4";
-		ctx.textAlign = "left";
+		ctx.textAlign = "center";
 		ctx.textBaseline = "middle";
-		ctx.fillText(cluster.title, hx + 11, hy + 12);
+		ctx.fillText(cluster.title, cluster.cx, hy + labelH / 2);
 		ctx.restore();
 	}
 
-	private drawLinks(ctx: CanvasRenderingContext2D): void {
+private drawLinks(ctx: CanvasRenderingContext2D): void {
 		const nodeMap = new Map(this.nodes.map((n) => [n.id, n]));
 
 		for (let i = 0; i < this.links.length; i++) {
@@ -1312,24 +1504,68 @@ const canTrash =
 			const b = nodeMap.get(l.to);
 			if (!a || !b) continue;
 
+			const pts = this.getLinkPoints(a, b, i + 1);
+			if (pts.length < 2) continue;
+
 			const isHovered = i === this.hoveredLinkIndex;
+			const first = pts[0]!;
+			const last = pts[pts.length - 1]!;
+
 			ctx.save();
+			ctx.lineCap = "round";
+			ctx.lineJoin = "round";
+
 			ctx.beginPath();
-			ctx.moveTo(a.x, a.y);
-			ctx.lineTo(b.x, b.y);
-			ctx.lineWidth = isHovered ? 3.2 : 2;
-			ctx.strokeStyle = isHovered ? "#d85b57" : this.hexToRgba(a.color, 0.52);
-			ctx.stroke();
+			ctx.moveTo(first.x, first.y);
+			for (let p = 1; p < pts.length - 1; p++) {
+				const curr = pts[p]!;
+				const next = pts[p + 1]!;
+				ctx.quadraticCurveTo(curr.x, curr.y, (curr.x + next.x) * 0.5, (curr.y + next.y) * 0.5);
+			}
+			ctx.lineTo(last.x, last.y);
+
+			if (isHovered) {
+				ctx.lineWidth = 6.5;
+				ctx.strokeStyle = "rgba(216, 91, 87, 0.22)";
+				ctx.stroke();
+
+				ctx.lineWidth = 3;
+				ctx.strokeStyle = "#d85b57";
+				ctx.stroke();
+			} else {
+				const grad = ctx.createLinearGradient(first.x, first.y, last.x, last.y);
+				grad.addColorStop(0, this.hexToRgba(a.color, 0.68));
+				grad.addColorStop(1, this.hexToRgba(b.color, 0.68));
+
+				ctx.lineWidth = 5;
+				ctx.strokeStyle = this.hexToRgba(a.color, 0.14);
+				ctx.stroke();
+
+				ctx.lineWidth = 2.1;
+				ctx.strokeStyle = grad;
+				ctx.stroke();
+			}
 			ctx.restore();
 		}
 
-		// Активная линия при протягивании новой связи
+		// Активная волнистая линия при протягивании новой связи
 		if (this.dragMode === "link" && this.linkSourceNode) {
+			const sx = this.linkSourceNode.x;
+			const sy = this.linkSourceNode.y;
+			const ex = this.linkPointerWorld.x;
+			const ey = this.linkPointerWorld.y;
+			const mx = (sx + ex) * 0.5;
+			const my = (sy + ey) * 0.5;
+			const dx = ex - sx;
+			const dy = ey - sy;
+			const dist = Math.hypot(dx, dy) || 1;
+			const wave = Math.sin(this.animTimeSec * 4) * Math.min(20, dist * 0.12);
+
 			ctx.save();
 			ctx.beginPath();
-			ctx.moveTo(this.linkSourceNode.x, this.linkSourceNode.y);
-			ctx.lineTo(this.linkPointerWorld.x, this.linkPointerWorld.y);
-			ctx.setLineDash([5, 5]);
+			ctx.moveTo(sx, sy);
+			ctx.quadraticCurveTo(mx - (dy / dist) * wave, my + (dx / dist) * wave, ex, ey);
+			ctx.setLineDash([6, 5]);
 			ctx.lineWidth = 2.2;
 			ctx.strokeStyle = "#9c83e8";
 			ctx.stroke();
@@ -1427,11 +1663,11 @@ ctx.lineWidth = isDropCatch ? 3.2 : isPendingSource ? 3 : isHover ? 2.2 : 1.5;
 
 		ctx.restore();
 
-		// Индикатор приёма карточки при наведении заметки на пузырь
+// Индикатор приёма карточки при наведении заметки на пузырь
 		if (isDropCatch) {
 			ctx.save();
 			const pillText = "📥 Переместить сюда";
-			ctx.font = "700 11px var(--font-interface, sans-serif)";
+			ctx.font = `700 11px ${this.uiFontFamily}`;
 			const pw = ctx.measureText(pillText).width + 16;
 			const py = node.y - r - 18;
 			ctx.beginPath();
@@ -1445,16 +1681,174 @@ ctx.lineWidth = isDropCatch ? 3.2 : isPendingSource ? 3 : isHover ? 2.2 : 1.5;
 			ctx.restore();
 		}
 
-		// Крупное чистое название строго по центру пузыря без лишних счётчиков и подзаголовков
-		const titlePrefix = node.kind === "folder" ? "📁 " : "";
-		const fullTitle = titlePrefix + node.label;
-		const fontSize = Math.max(15.5, Math.min(20, Math.round(r * 0.29)));
+const hasGlyph = this.drawBubbleGlyph(ctx, node, r, isHover);
 
+		// Крупное чистое название по центру пузыря с автоподбором кегля под длинные слова
+		const fullTitle = node.label;
+		const maxTextW = r * 1.66;
+		let fontSize = node.kind === "program"
+			? Math.max(18, Math.min(24, Math.round(r * 0.34)))
+			: Math.max(15.5, Math.min(21, Math.round(r * 0.31)));
+
+		const words = fullTitle.split(/\s+/).filter(Boolean);
+		while (fontSize > 12.5) {
+			ctx.font = `700 ${fontSize}px ${this.uiFontFamily}`;
+			const widestWord = words.reduce((max, w) => Math.max(max, ctx.measureText(w).width), 0);
+			if (widestWord <= maxTextW) break;
+			fontSize -= 0.75;
+		}
+
+		const textCenterY = hasGlyph ? node.y + Math.round(r * 0.14) : node.y;
+
+		ctx.save();
 		ctx.textAlign = "center";
 		ctx.textBaseline = "middle";
 		ctx.fillStyle = "#f4f6fb";
-		ctx.font = `700 ${fontSize}px var(--font-interface, sans-serif)`;
-		this.drawWrappedText(ctx, fullTitle, node.x, node.y, r * 1.75, fontSize + 4, 3);
+		ctx.font = `700 ${fontSize}px ${this.uiFontFamily}`;
+		ctx.shadowColor = "rgba(10, 12, 18, 0.75)";
+		ctx.shadowBlur = 8;
+		ctx.shadowOffsetY = 1;
+		this.drawWrappedText(ctx, fullTitle, node.x, textCenterY, maxTextW, fontSize + 5, 3);
+		ctx.restore();
+	}
+
+	private drawBubbleGlyph(
+		ctx: CanvasRenderingContext2D,
+		node: BubbleNode,
+		r: number,
+		isHover: boolean
+	): boolean {
+		if (node.kind === "program" || node.kind === "note") return false;
+
+		const key = node.label.toLowerCase();
+		const gx = node.x;
+		const gy = node.y - Math.max(15, Math.round(r * 0.34));
+
+		ctx.save();
+		ctx.translate(gx, gy);
+		ctx.strokeStyle = isHover ? "#f4f6fb" : this.hexToRgba(node.color, 0.92);
+		ctx.fillStyle = isHover ? "#f4f6fb" : this.hexToRgba(node.color, 0.92);
+		ctx.lineWidth = 1.55;
+		ctx.lineCap = "round";
+		ctx.lineJoin = "round";
+
+		if (node.kind === "folder") {
+			ctx.beginPath();
+			ctx.moveTo(-6.5, -4.5);
+			ctx.lineTo(-1.5, -4.5);
+			ctx.lineTo(0.5, -2.5);
+			ctx.lineTo(6.5, -2.5);
+			ctx.lineTo(6.5, 4.5);
+			ctx.lineTo(-6.5, 4.5);
+			ctx.closePath();
+			ctx.stroke();
+			ctx.restore();
+			return true;
+		}
+
+		if (key.includes("нод") || key.includes("node")) {
+			// Связанные ноды
+			ctx.beginPath();
+			ctx.moveTo(-4, -3);
+			ctx.lineTo(4, 0);
+			ctx.lineTo(-3, 4);
+			ctx.stroke();
+			for (const [cx, cy] of [[-5, -3], [4.5, 0], [-3.5, 4]] as const) {
+				ctx.beginPath();
+				ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+				ctx.fill();
+			}
+		} else if (key.includes("модел") || key.includes("скульпт") || key.includes("меш") || key.includes("ретопол")) {
+			// Куб / грань
+			ctx.beginPath();
+			ctx.moveTo(0, -6.5);
+			ctx.lineTo(5.8, -3.2);
+			ctx.lineTo(5.8, 3.2);
+			ctx.lineTo(0, 6.5);
+			ctx.lineTo(-5.8, 3.2);
+			ctx.lineTo(-5.8, -3.2);
+			ctx.closePath();
+			ctx.moveTo(-5.8, -3.2);
+			ctx.lineTo(0, 0);
+			ctx.lineTo(5.8, -3.2);
+			ctx.moveTo(0, 0);
+			ctx.lineTo(0, 6.5);
+			ctx.stroke();
+		} else if (key.includes("uv") || key.includes("развёрт") || key.includes("разверт")) {
+			// Сетка 2x2
+			ctx.strokeRect(-5.5, -5.5, 11, 11);
+			ctx.beginPath();
+			ctx.moveTo(0, -5.5);
+			ctx.lineTo(0, 5.5);
+			ctx.moveTo(-5.5, 0);
+			ctx.lineTo(5.5, 0);
+			ctx.stroke();
+		} else if (key.includes("текстур") || key.includes("шейдер") || key.includes("материал") || key.includes("стекл")) {
+			// Две пересекающиеся сферы
+			ctx.beginPath();
+			ctx.arc(-2.5, 0, 4.3, 0, Math.PI * 2);
+			ctx.stroke();
+			ctx.beginPath();
+			ctx.arc(2.5, 0, 4.3, 0, Math.PI * 2);
+			ctx.stroke();
+		} else if (
+			key.includes("окруж") ||
+			key.includes("ландшафт") ||
+			key.includes("атмосфер") ||
+			key.includes("луж") ||
+			key.includes("вод") ||
+			key.includes("дерев")
+		) {
+			// Горизонт и волна/гора
+			ctx.beginPath();
+			ctx.moveTo(-6.5, 3.5);
+			ctx.lineTo(-2, -3.5);
+			ctx.lineTo(2, 1.5);
+			ctx.lineTo(4, -1.5);
+			ctx.lineTo(6.5, 3.5);
+			ctx.stroke();
+		} else if (key.includes("свет") || key.includes("рендер") || key.includes("hdri") || key.includes("голограм")) {
+			// Свечение / лучи
+			ctx.beginPath();
+			ctx.arc(0, 0, 2.8, 0, Math.PI * 2);
+			ctx.stroke();
+			for (let a = 0; a < 4; a++) {
+				const ang = (a * Math.PI) / 2;
+				ctx.beginPath();
+				ctx.moveTo(Math.cos(ang) * 4.8, Math.sin(ang) * 4.8);
+				ctx.lineTo(Math.cos(ang) * 6.8, Math.sin(ang) * 6.8);
+				ctx.stroke();
+			}
+		} else if (key.includes("анимац")) {
+			// Ромб ключевого кадра
+			ctx.beginPath();
+			ctx.moveTo(0, -5.5);
+			ctx.lineTo(5.5, 0);
+			ctx.lineTo(0, 5.5);
+			ctx.lineTo(-5.5, 0);
+			ctx.closePath();
+			ctx.stroke();
+		} else if (key.includes("декал") || key.includes("запек") || key.includes("пайплайн")) {
+			// Слои
+			ctx.beginPath();
+			ctx.moveTo(-6, -1.5);
+			ctx.lineTo(0, -5);
+			ctx.lineTo(6, -1.5);
+			ctx.lineTo(0, 2);
+			ctx.closePath();
+			ctx.moveTo(-6, 2);
+			ctx.lineTo(0, 5.5);
+			ctx.lineTo(6, 2);
+			ctx.stroke();
+		} else {
+			// Минималистичная точка-маркер для прочих тем
+			ctx.beginPath();
+			ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+			ctx.stroke();
+		}
+
+		ctx.restore();
+		return true;
 	}
 
 	private wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
@@ -1498,8 +1892,8 @@ ctx.lineWidth = isDropCatch ? 3.2 : isPendingSource ? 3 : isHover ? 2.2 : 1.5;
 		const lineHeight = 17;
 		const maxTextW = node.note?.hasImages ? w - 46 : w - 26;
 
-		ctx.save();
-		ctx.font = "600 13.5px var(--font-interface, sans-serif)";
+ctx.save();
+		ctx.font = `600 13.5px ${this.uiFontFamily}`;
 		const lines = this.wrapLines(ctx, node.label, maxTextW);
 		const h = Math.max(46, lines.length * lineHeight + 20);
 		this.noteHalfHeights.set(node.id, h / 2);
