@@ -18,11 +18,26 @@ export default class Hub3DPlugin extends Plugin {
 			void this.activateView();
 		});
 
-		this.addCommand({
+this.addCommand({
 			id: "open-3d-spatial-hub",
 			name: "Открыть холст 3D Spatial Hub",
 			callback: () => {
 				void this.activateView();
+			}
+		});
+
+		this.addCommand({
+			id: "open-active-note-schema",
+			name: "Открыть схему текущей 3D-заметки",
+			callback: () => {
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile || activeFile.extension !== "md") return;
+				void this.activateView().then(() => {
+					const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_3D_HUB)[0];
+					if (leaf?.view instanceof Hub3DView) {
+						leaf.view.openInspectorForFile(activeFile);
+					}
+				});
 			}
 		});
 

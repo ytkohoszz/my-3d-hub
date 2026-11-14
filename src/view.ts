@@ -1,5 +1,7 @@
-import { ItemView, Modal, Notice, TFolder, WorkspaceLeaf, normalizePath } from "obsidian";
+import { ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath } from "obsidian";
 import { BubbleCanvasEngine, BubbleNode, DropTargetInfo, NavLevel } from "./canvas";
+import { extractImagesFromNote } from "./inspector/sceneStore";
+import { NoteSchemaOverlay } from "./inspector/canvasOverlay";
 import type Hub3DPlugin from "./main";
 import { AREA_NAME, Note3D, PRESET_PROGRAMS, PRESET_TOPICS, mapTopic, topicParts } from "./types";
 
@@ -95,8 +97,9 @@ private topIslandEl: HTMLElement | null = null;
 	private trashZoneEl: HTMLElement | null = null;
 	private outsideZoneEl: HTMLElement | null = null;
 	private popoverEl: HTMLElement | null = null;
-	private popoverMode: ActivePopoverMode = "none";
+private popoverMode: ActivePopoverMode = "none";
 	private level: NavLevel = { program: null, topicPath: "" };
+	private inspectorOverlay: NoteSchemaOverlay | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Hub3DPlugin) {
 		super(leaf);
@@ -200,6 +203,13 @@ onDragStateChange: (draggingNode, overTrash, dropTarget: DropTargetInfo | null) 
 
 this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
 			if (!this.containerEl.isShown()) return;
+			if (this.inspectorOverlay) {
+				if (e.key === "Escape") {
+					e.preventDefault();
+					this.inspectorOverlay.close();
+				}
+				return;
+			}
 			if (e.key === "Escape" && this.popoverMode !== "none") {
 				e.preventDefault();
 				this.closePopover();
@@ -214,7 +224,9 @@ this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
 		this.refresh();
 	}
 
-	public async onClose(): Promise<void> {
+public async onClose(): Promise<void> {
+		this.inspectorOverlay?.destroy();
+		this.inspectorOverlay = null;
 		this.engine?.destroy();
 		this.engine = null;
 		this.contentEl.empty();
@@ -811,17 +823,20 @@ private async moveNoteToTopic(note: Note3D, targetTopicPath: string): Promise<vo
 		}
 	}
 
-	private openNodeInspector(note: Note3D): void {
-		const plugins = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } }).plugins?.plugins;
-		const inspector = (plugins?.["my-3d-node-inspector"] ||
-			(window as unknown as Record<string, unknown>).__my3DNodeInspector) as
-			| { openInspector?: (opts: { file: Note3D["file"] }) => void }
-			| undefined;
-
-		if (inspector && typeof inspector.openInspector === "function") {
-			inspector.openInspector({ file: note.file });
+public openInspectorForFile(file: TFile): void {
+		const images = extractImagesFromNote(this.app, file);
+		if (images.length === 0) {
+			new Notice(`В заметке «${file.basename}» не найдено скриншотов`);
 			return;
 		}
-		new Notice("Включи плагин 3D Node Inspector (my-3d-node-inspector) в настройках Obsidian.");
+		this.inspectorOverlay?.destroy();
+		this.inspectorOverlay = new NoteSchemaOverlay(this.app, this.contentEl, file, () => {
+			this.inspectorOverlay = null;
+		});
+		this.inspectorOverlay.open();
+	}
+
+	private openNodeInspector(note: Note3D): void {
+		this.openInspectorForFile(note.file);
 	}
 }
