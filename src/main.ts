@@ -66,7 +66,7 @@ this.addCommand({
 		}
 	}
 
-	public async activateView(): Promise<void> {
+public async activateView(): Promise<void> {
 		const { workspace } = this.app;
 		let leaf: WorkspaceLeaf | null = workspace.getLeavesOfType(VIEW_TYPE_3D_HUB)[0] || null;
 
@@ -75,6 +75,14 @@ this.addCommand({
 			await leaf.setViewState({ type: VIEW_TYPE_3D_HUB, active: true });
 		}
 		workspace.revealLeaf(leaf);
+	}
+
+	public async openInspector(options: { file: TFile }): Promise<void> {
+		await this.activateView();
+		const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_3D_HUB)[0];
+		if (leaf?.view instanceof Hub3DView) {
+			leaf.view.openInspectorForFile(options.file);
+		}
 	}
 
 	public scheduleRefresh(): void {
