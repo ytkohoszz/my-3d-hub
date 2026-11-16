@@ -338,7 +338,11 @@ function renderTextContent(
 export function renderSceneElement(
 	ctx: CanvasRenderingContext2D,
 	el: SceneElement,
-	opts: { boundTextElement?: SceneElement | null; isEditingText?: boolean }
+	opts: {
+		boundTextElement?: SceneElement | null;
+		isEditingText?: boolean;
+		getImage?: (el: SceneElement) => HTMLImageElement | null;
+	}
 ): void {
 	if (el.isDeleted) return;
 
@@ -439,6 +443,30 @@ export function renderSceneElement(
 				drawArrowhead(ctx, el.startArrowhead, first.x, first.y, second.x, second.y, el.strokeColor, el.strokeWidth);
 				drawArrowhead(ctx, el.endArrowhead ?? "arrow", last.x, last.y, beforeLast.x, beforeLast.y, el.strokeColor, el.strokeWidth);
 			}
+		}
+} else if (el.type === "image") {
+		const img = opts.getImage?.(el) ?? null;
+		const r = Math.max(0, el.roundness ?? 10);
+		if (img && img.complete && img.naturalWidth > 0) {
+			ctx.save();
+			buildRoundedRectPath(ctx, el.x, el.y, el.width, el.height, r);
+			ctx.clip();
+			ctx.drawImage(img, el.x, el.y, el.width, el.height);
+			ctx.restore();
+
+			ctx.save();
+			buildRoundedRectPath(ctx, el.x, el.y, el.width, el.height, r);
+			ctx.lineWidth = Math.max(1, el.strokeWidth || 1.5);
+			ctx.strokeStyle = el.strokeColor || "rgba(255, 255, 255, 0.22)";
+			ctx.stroke();
+			ctx.restore();
+		} else {
+			buildRoundedRectPath(ctx, el.x, el.y, el.width, el.height, r);
+			ctx.fillStyle = "rgba(26, 29, 38, 0.78)";
+			ctx.fill();
+			ctx.lineWidth = 1.5;
+			ctx.strokeStyle = el.strokeColor || "rgba(156, 131, 232, 0.45)";
+			ctx.stroke();
 		}
 	} else if (el.type === "text" && !el.containerId && !opts.isEditingText) {
 		renderTextContent(ctx, el, el.x, el.y, el.width, el.height, el.text ?? "", el.strokeColor || "#ffffff");

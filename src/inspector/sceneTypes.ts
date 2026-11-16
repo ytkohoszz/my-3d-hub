@@ -6,7 +6,8 @@ export type SceneElementType =
 	| "ellipse"
 	| "arrow"
 	| "line"
-	| "text";
+	| "text"
+	| "image";
 
 export type FillStyle = "solid" | "hachure" | "cross-hatch" | "none";
 export type StrokeStyle = "solid" | "dashed" | "dotted";
@@ -67,8 +68,10 @@ export interface SceneElement {
 	textAlign: TextAlignType;
 	verticalAlign: VerticalAlignType;
 	autoResize?: boolean;
-	containerId?: string | null;
+containerId?: string | null;
 	boundTextId?: string | null;
+	imagePath?: string;
+	aspectRatio?: number;
 	locked: boolean;
 	isDeleted: boolean;
 	zIndex: number;
@@ -109,6 +112,8 @@ export interface SceneAppState {
 
 export interface Scene {
 	version: 2;
+	title?: string;
+	deleted?: boolean;
 	elements: SceneElement[];
 	appState: SceneAppState;
 }

@@ -1,4 +1,4 @@
-import { App, TFile, setIcon } from "obsidian";
+import { App, Notice, TFile, setIcon } from "obsidian";
 import { getProgramColor, getTopicAccentColor, mapTopic, topicParts } from "../types";
 import {
 	ROTATE_HANDLE_OFFSET_PX,
@@ -93,6 +93,13 @@ function isTextContainer(el: SceneElement): boolean {
 	return el.type === "rectangle" || el.type === "diamond" || el.type === "ellipse";
 }
 
+interface SlideItem {
+	key: string;
+	label: string;
+	kind: "image" | "board";
+	image?: NodeImageItem;
+}
+
 export class NoteSchemaOverlay {
 	protected app: App;
 	protected parentEl: HTMLElement;
@@ -101,21 +108,26 @@ export class NoteSchemaOverlay {
 	protected doc: Document;
 	private onCloseCallback: () => void;
 
-	protected rootEl!: HTMLElement;
+protected rootEl!: HTMLElement;
 	protected viewportEl!: HTMLElement;
 	protected canvasEl!: HTMLCanvasElement;
 	private ctx!: CanvasRenderingContext2D;
+	private topIslandEl!: HTMLElement;
 	private dockEl!: HTMLElement;
+	private imgPopoverEl!: HTMLDivElement;
+	private imgPickBtn!: HTMLButtonElement;
 	private undoBtn!: HTMLButtonElement;
 	private redoBtn!: HTMLButtonElement;
 	private toolBtns = new Map<CanvasToolId, HTMLButtonElement>();
 
 	protected images: NodeImageItem[] = [];
+	private slides: SlideItem[] = [];
 	protected activeIndex = 0;
 	protected accentColor = "#9c83e8";
 	private store: SceneStore;
 	private scenes: ScenesByKey = new Map();
 	private bgImages = new Map<string, HTMLImageElement>();
+	private elementImages = new Map<string, HTMLImageElement>();
 
 	protected scene!: Scene;
 	protected selectedIds = new Set<string>();
@@ -138,8 +150,9 @@ export class NoteSchemaOverlay {
 	private vpHeight = 1;
 	private dpr = 1;
 	private spacePressed = false;
-	private keyHandler?: (e: KeyboardEvent) => void;
-private keyUpHandler?: (e: KeyboardEvent) => void;
+private keyHandler?: (e: KeyboardEvent) => void;
+	private keyUpHandler?: (e: KeyboardEvent) => void;
+	private pasteHandler?: (e: ClipboardEvent) => void;
 	private resizeObserver: ResizeObserver | null = null;
 	private propsCtrl: InspectorPropertiesController | null = null;
 
@@ -157,14 +170,18 @@ private keyUpHandler?: (e: KeyboardEvent) => void;
 		this.store = new SceneStore(app, file, this.accentColor, win);
 	}
 
-	public open(): void {
+public open(): void {
 		this.rootEl = this.parentEl.createDiv({ cls: "hub3d-insp-overlay" });
 		this.rootEl.style.setProperty("--hub3d-accent", this.accentColor);
 
+		this.scenes = this.store.loadScenes();
+		this.rebuildSlides();
+
+		this.topIslandEl = this.rootEl.createDiv({ cls: "hub3d-insp-top-island" });
 		this.renderTopIsland();
 
 		this.viewportEl = this.rootEl.createDiv({ cls: "hub3d-insp-viewport" });
-		if (this.images.length === 0) {
+		if (this.slides.length === 0) {
 			this.rootEl.createDiv({ cls: "hub3d-insp-empty", text: "В этой заметке пока нет скриншотов" });
 			return;
 		}
@@ -175,7 +192,7 @@ private keyUpHandler?: (e: KeyboardEvent) => void;
 		this.ctx = context;
 
 		this.textEditor = new CanvasTextEditor(this.viewportEl);
-		this.scenes = this.store.loadScenes();
+		this.imgPopoverEl = this.rootEl.createDiv({ cls: "hub3d-insp-img-popover is-hidden" });
 
 		this.renderBottomDock();
 		this.initSubPanels();
@@ -221,11 +238,12 @@ protected initSubPanels(): void {
 		this.propsCtrl?.refresh();
 	}
 
-	public destroy(): void {
+public destroy(): void {
 		this.propsCtrl?.destroy();
 		this.propsCtrl = null;
 		if (this.keyHandler) this.win.removeEventListener("keydown", this.keyHandler);
 		if (this.keyUpHandler) this.win.removeEventListener("keyup", this.keyUpHandler);
+		if (this.pasteHandler) this.doc.removeEventListener("paste", this.pasteHandler, true);
 		if (this.rafId !== null) this.win.cancelAnimationFrame(this.rafId);
 		if (this.floatRafId !== null) this.win.cancelAnimationFrame(this.floatRafId);
 		this.resizeObserver?.disconnect();
@@ -250,8 +268,45 @@ protected initSubPanels(): void {
 		return rootTopic ? getTopicAccentColor(baseColor, rootTopic) : baseColor;
 	}
 
+private rebuildSlides(): void {
+		const next: SlideItem[] = [];
+		const seen = new Set<string>();
+
+		for (const img of this.images) {
+			const sc = this.scenes.get(img.name);
+			if (sc?.deleted) continue;
+			seen.add(img.name);
+			next.push({
+				key: img.name,
+				label: sc?.title || String(next.length + 1),
+				kind: "image",
+				image: img
+			});
+		}
+
+		for (const [key, sc] of this.scenes.entries()) {
+			if (sc.deleted || seen.has(key)) continue;
+			next.push({
+				key,
+				label: sc.title || String(next.length + 1),
+				kind: "board"
+			});
+		}
+
+		if (next.length === 0 && this.images.length > 0) {
+			const key = "__board_1__";
+			if (!this.scenes.has(key)) this.scenes.set(key, createEmptyScene(this.accentColor));
+			next.push({ key, label: "1", kind: "board" });
+		}
+
+		this.slides = next;
+		this.activeIndex = clamp(this.activeIndex, 0, Math.max(0, next.length - 1));
+	}
+
 	private renderTopIsland(): void {
-		const top = this.rootEl.createDiv({ cls: "hub3d-insp-top-island" });
+		const top = this.topIslandEl;
+		top.empty();
+
 		const backBtn = top.createEl("button", { cls: "hub3d-crumb-btn hub3d-back-btn", text: "← Назад" });
 		backBtn.title = "Вернуться на холст (Esc)";
 		backBtn.addEventListener("click", () => this.close());
@@ -259,26 +314,66 @@ protected initSubPanels(): void {
 		top.createSpan({ cls: "hub3d-crumb-sep", text: "/" });
 		top.createSpan({ cls: "hub3d-insp-title", text: this.file.basename });
 
-		if (this.images.length > 1) {
-			const switcher = top.createDiv({ cls: "hub3d-insp-switcher" });
-			this.images.forEach((_, idx) => {
-				const btn = switcher.createEl("button", {
-					cls: "hub3d-crumb-btn" + (idx === this.activeIndex ? " is-current" : ""),
-					text: String(idx + 1)
-				});
-				btn.title = `Схема ${idx + 1}`;
-				btn.addEventListener("click", () => {
-					if (this.activeIndex === idx) return;
-					this.activeIndex = idx;
-					switcher.querySelectorAll(".hub3d-crumb-btn").forEach((el, i) => el.toggleClass("is-current", i === idx));
-					void this.loadActiveSlide();
-				});
+		const switcher = top.createDiv({ cls: "hub3d-insp-switcher" });
+		this.slides.forEach((slide, idx) => {
+			const btn = switcher.createEl("button", {
+				cls: "hub3d-crumb-btn" + (idx === this.activeIndex ? " is-current" : ""),
+				text: slide.label
 			});
+			btn.title = slide.kind === "board" ? `Свободная схема ${idx + 1}` : `Схема ${idx + 1}: ${slide.key}`;
+			btn.addEventListener("click", () => {
+				if (this.activeIndex === idx) return;
+				this.activeIndex = idx;
+				this.renderTopIsland();
+				void this.loadActiveSlide();
+			});
+		});
+
+		const addBoardBtn = switcher.createEl("button", { cls: "hub3d-crumb-btn", text: "+" });
+		addBoardBtn.title = "Создать новую свободную схему";
+		addBoardBtn.addEventListener("click", () => this.createNewBoard());
+
+		if (this.slides.length > 1) {
+			const delTabBtn = switcher.createEl("button", { cls: "hub3d-crumb-btn hub3d-insp-tab-del", text: "×" });
+			delTabBtn.title = "Скрыть текущую вкладку";
+			delTabBtn.addEventListener("click", () => this.hideActiveSlide());
 		}
 
 		const fitBtn = top.createEl("button", { cls: "hub3d-crumb-btn", text: "⌖" });
 		fitBtn.title = "Вписать схему в экран";
 		fitBtn.addEventListener("click", () => this.fitToScreen());
+	}
+
+	private createNewBoard(): void {
+		let n = 1;
+		let key = `__board_${n}__`;
+		while (this.scenes.has(key)) {
+			n++;
+			key = `__board_${n}__`;
+		}
+		this.scenes.set(key, createEmptyScene(this.accentColor));
+		this.rebuildSlides();
+		this.activeIndex = Math.max(0, this.slides.findIndex((s) => s.key === key));
+		this.store.scheduleSave(this.scenes);
+		this.renderTopIsland();
+		void this.loadActiveSlide();
+	}
+
+	private hideActiveSlide(): void {
+		const slide = this.slides[this.activeIndex];
+		if (!slide || this.slides.length <= 1) return;
+		if (slide.kind === "image") {
+			const sc = this.scenes.get(slide.key) ?? createEmptyScene(this.accentColor);
+			sc.deleted = true;
+			sc.elements = [];
+			this.scenes.set(slide.key, sc);
+		} else {
+			this.scenes.delete(slide.key);
+		}
+		this.rebuildSlides();
+		this.store.scheduleSave(this.scenes);
+		this.renderTopIsland();
+		void this.loadActiveSlide();
 	}
 
 	private renderBottomDock(): void {
@@ -315,7 +410,15 @@ protected initSubPanels(): void {
 		setIcon(this.redoBtn, "redo-2");
 		this.redoBtn.addEventListener("click", () => this.redo());
 
-		this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
+this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
+
+		this.imgPickBtn = this.dockEl.createEl("button", { cls: "hub3d-dock-btn hub3d-insp-tool-btn" });
+		this.imgPickBtn.title = "Добавить картинку на эту схему";
+		setIcon(this.imgPickBtn, "image-plus");
+		this.imgPickBtn.addEventListener("click", (e) => {
+			e.stopPropagation();
+			this.toggleImagePopover();
+		});
 
 		const openBtn = this.dockEl.createEl("button", { cls: "hub3d-dock-btn", text: "Заметка" });
 		openBtn.addEventListener("click", () => {
@@ -324,29 +427,110 @@ protected initSubPanels(): void {
 		});
 	}
 
+	private toggleImagePopover(force?: boolean): void {
+		if (!this.imgPopoverEl) return;
+		const show = force !== undefined ? force : this.imgPopoverEl.hasClass("is-hidden");
+		this.imgPickBtn?.toggleClass("is-active", show);
+		if (!show) {
+			this.imgPopoverEl.addClass("is-hidden");
+			return;
+		}
+		this.renderImagePopover();
+		this.imgPopoverEl.removeClass("is-hidden");
+	}
+
+	private renderImagePopover(): void {
+		this.imgPopoverEl.empty();
+		this.imgPopoverEl.createDiv({ cls: "hub3d-pop-header", text: "Добавить картинку на схему" });
+
+		const list = this.imgPopoverEl.createDiv({ cls: "hub3d-insp-img-list" });
+		for (const item of this.images) {
+			const row = list.createEl("button", { cls: "hub3d-insp-img-row" });
+			const thumb = row.createEl("img", { cls: "hub3d-insp-img-thumb" });
+			thumb.src = item.resourcePath;
+			row.createSpan({ cls: "hub3d-insp-img-name", text: item.name });
+			row.addEventListener("click", () => {
+				this.toggleImagePopover(false);
+				void this.addImageElementToScene(item.path, item.resourcePath);
+			});
+		}
+
+		this.imgPopoverEl.createDiv({
+			cls: "hub3d-pop-sub",
+			text: "Также можно вставить скриншот из буфера через Ctrl+V"
+		});
+	}
+
+	private async addImageElementToScene(vaultPath: string, resourceUrl: string): Promise<void> {
+		const img = new this.win.Image();
+		await new Promise<void>((resolve) => {
+			img.onload = () => resolve();
+			img.onerror = () => resolve();
+			img.src = resourceUrl;
+		});
+		this.elementImages.set(vaultPath, img);
+
+		const natW = img.naturalWidth || 640;
+		const natH = img.naturalHeight || 400;
+		const maxW = 540;
+		const ratio = natW / Math.max(1, natH);
+		const w = natW > maxW ? maxW : natW;
+		const h = Math.round(w / ratio);
+
+		const z = Math.max(0.1, this.scene.appState.zoom);
+		const cx = this.vpWidth / (2 * z) - this.scene.appState.scrollX;
+		const cy = this.vpHeight / (2 * z) - this.scene.appState.scrollY;
+
+		this.history.beginTransaction(this.scene.elements, this.selectedIds);
+		const el = createSceneElement("image", { x: cx - w / 2, y: cy - h / 2 }, this.scene.appState.currentStyle, this.getNextZIndex());
+		el.width = w;
+		el.height = h;
+		el.imagePath = vaultPath;
+		el.aspectRatio = ratio;
+		el.roundness = 10;
+		el.strokeWidth = 1.5;
+		el.strokeColor = this.accentColor;
+		this.scene.elements.push(el);
+		this.selectedIds = new Set([el.id]);
+		this.setTool("select");
+		this.commitScene();
+	}
+
+	private resolveElementImage(el: SceneElement): HTMLImageElement | null {
+		if (!el.imagePath) return null;
+		const cached = this.elementImages.get(el.imagePath);
+		if (cached) return cached;
+		const img = new this.win.Image();
+		img.onload = () => this.scheduleRender();
+		img.src = this.app.vault.adapter.getResourcePath(el.imagePath);
+		this.elementImages.set(el.imagePath, img);
+		return img;
+	}
+
 	private async loadActiveSlide(): Promise<void> {
-		const item = this.images[this.activeIndex];
-		if (!item) return;
+		const slide = this.slides[this.activeIndex];
+		if (!slide) return;
 
 		if (this.textEditor.isOpen()) this.textEditor.close(true);
+		this.toggleImagePopover(false);
 		this.selectedIds.clear();
 		this.history.clear();
 
-		let existing = this.scenes.get(item.name);
+		let existing = this.scenes.get(slide.key);
 		if (!existing) {
 			existing = createEmptyScene(this.accentColor);
-			this.scenes.set(item.name, existing);
+			this.scenes.set(slide.key, existing);
 		}
 		this.scene = existing;
 
-		if (!this.bgImages.has(item.name)) {
+		if (slide.kind === "image" && slide.image && !this.bgImages.has(slide.image.name)) {
 			const img = new this.win.Image();
 			await new Promise<void>((resolve) => {
 				img.onload = () => resolve();
 				img.onerror = () => resolve();
-				img.src = item.resourcePath;
+				img.src = slide.image!.resourcePath;
 			});
-			this.bgImages.set(item.name, img);
+			this.bgImages.set(slide.image.name, img);
 		}
 
 		this.setTool(this.scene.appState.activeTool || "hand", false);
@@ -356,15 +540,30 @@ protected initSubPanels(): void {
 	}
 
 	private fitToScreen(): void {
-		const item = this.images[this.activeIndex];
-		const img = item ? this.bgImages.get(item.name) : undefined;
-		const imgW = img?.naturalWidth || 900;
-		const imgH = img?.naturalHeight || 600;
-		const pad = 76;
-		const zoom = clamp(Math.min((this.vpWidth - pad * 2) / imgW, (this.vpHeight - pad * 2) / imgH, 1.35), 0.12, 6);
-		this.scene.appState.zoom = zoom;
-		this.scene.appState.scrollX = (this.vpWidth / zoom - imgW) / 2;
-		this.scene.appState.scrollY = (this.vpHeight / zoom - imgH) / 2;
+		const slide = this.slides[this.activeIndex];
+		if (slide?.kind === "image" && slide.image) {
+			const img = this.bgImages.get(slide.image.name);
+			const imgW = img?.naturalWidth || 900;
+			const imgH = img?.naturalHeight || 600;
+			const pad = 76;
+			const zoom = clamp(Math.min((this.vpWidth - pad * 2) / imgW, (this.vpHeight - pad * 2) / imgH, 1.35), 0.12, 6);
+			this.scene.appState.zoom = zoom;
+			this.scene.appState.scrollX = (this.vpWidth / zoom - imgW) / 2;
+			this.scene.appState.scrollY = (this.vpHeight / zoom - imgH) / 2;
+		} else {
+			const bounds = getSelectionAABB(this.scene.elements.filter((e) => !e.isDeleted));
+			if (bounds) {
+				const pad = 80;
+				const zoom = clamp(Math.min((this.vpWidth - pad * 2) / bounds.width, (this.vpHeight - pad * 2) / bounds.height, 1.4), 0.12, 6);
+				this.scene.appState.zoom = zoom;
+				this.scene.appState.scrollX = this.vpWidth / (2 * zoom) - bounds.cx;
+				this.scene.appState.scrollY = this.vpHeight / (2 * zoom) - bounds.cy;
+			} else {
+				this.scene.appState.zoom = 1;
+				this.scene.appState.scrollX = this.vpWidth / 2;
+				this.scene.appState.scrollY = this.vpHeight / 2;
+			}
+		}
 		this.textEditor.reposition();
 		this.scheduleRender();
 	}
@@ -474,9 +673,9 @@ protected initSubPanels(): void {
 		ctx.scale(safeZoom, safeZoom);
 		ctx.translate(scrollX, effScrollY);
 
-		// Фоновый скриншот заметки в мягкой стеклянной рамке
-		const item = this.images[this.activeIndex];
-		const img = item ? this.bgImages.get(item.name) : undefined;
+// Базовый скриншот вкладки (если это вкладка-картинка, а не свободная схема)
+		const slide = this.slides[this.activeIndex];
+		const img = slide?.kind === "image" && slide.image ? this.bgImages.get(slide.image.name) : undefined;
 		if (img && img.complete && img.naturalWidth > 0) {
 			const w = img.naturalWidth;
 			const h = img.naturalHeight;
@@ -505,11 +704,15 @@ protected initSubPanels(): void {
 		const byId = new Map<string, SceneElement>();
 		for (const el of this.scene.elements) if (!el.isDeleted) byId.set(el.id, el);
 
-		for (const el of this.scene.elements) {
+for (const el of this.scene.elements) {
 			if (el.isDeleted || el.containerId) continue;
 			const boundText = el.boundTextId ? byId.get(el.boundTextId) ?? null : null;
 			const isEditing = this.editingElementId === el.id || (boundText !== null && this.editingElementId === boundText.id);
-			renderSceneElement(ctx, el, { boundTextElement: boundText, isEditingText: isEditing });
+			renderSceneElement(ctx, el, {
+				boundTextElement: boundText,
+				isEditingText: isEditing,
+				getImage: (imgEl) => this.resolveElementImage(imgEl)
+			});
 		}
 
 		if (this.bindingHighlight) {
@@ -836,7 +1039,13 @@ protected initSubPanels(): void {
 				} else if (elSnap && !elSnap.points) {
 					const el = this.getElementById(elSnap.id);
 					if (el) {
-						const next = resizeBoxFromHandle({ x: elSnap.x, y: elSnap.y, width: elSnap.width, height: elSnap.height }, elSnap.angle || 0, h.kind, ptr, { keepRatio: e.shiftKey });
+const next = resizeBoxFromHandle(
+							{ x: elSnap.x, y: elSnap.y, width: elSnap.width, height: elSnap.height },
+							elSnap.angle || 0,
+							h.kind,
+							ptr,
+							{ keepRatio: e.shiftKey || elSnap.type === "image" }
+						);
 						el.x = next.x;
 						el.y = next.y;
 						el.width = next.width;
@@ -1308,7 +1517,36 @@ protected initSubPanels(): void {
 				this.updateCursor();
 			}
 		};
+this.pasteHandler = (e: ClipboardEvent) => {
+			if (this.textEditor.isOpen()) return;
+			const tag = (this.doc.activeElement as HTMLElement | null)?.tagName ?? "";
+			if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+
+			const items = Array.from(e.clipboardData?.items ?? []);
+			const imgItem = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+			const file = imgItem?.getAsFile();
+			if (!file) return;
+
+			e.preventDefault();
+			e.stopPropagation();
+			void (async () => {
+				try {
+					const folder = this.file.parent?.path ? `${this.file.parent.path}/` : "";
+					const fileName = `schema-${Date.now()}.png`;
+					const targetPath = `${folder}${fileName}`;
+					const buf = await file.arrayBuffer();
+					await this.app.vault.createBinary(targetPath, buf);
+					const resUrl = this.app.vault.adapter.getResourcePath(targetPath);
+					await this.addImageElementToScene(targetPath, resUrl);
+					new Notice(`Скриншот добавлен: ${fileName}`);
+				} catch (err: unknown) {
+					new Notice("Не удалось вставить картинку: " + (err instanceof Error ? err.message : String(err)));
+				}
+			})();
+		};
+
 		this.win.addEventListener("keydown", this.keyHandler);
 		this.win.addEventListener("keyup", this.keyUpHandler);
+		this.doc.addEventListener("paste", this.pasteHandler, true);
 	}
 }

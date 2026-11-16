@@ -89,13 +89,14 @@ function normalizeElement(
 	accentColor: string
 ): SceneElement | null {
 	const rawType = String(raw["type"] ?? "rectangle");
-	const validTypes: readonly SceneElementType[] = [
+const validTypes: readonly SceneElementType[] = [
 		"rectangle",
 		"diamond",
 		"ellipse",
 		"arrow",
 		"line",
-		"text"
+		"text",
+		"image"
 	];
 
 	let type: SceneElementType = "rectangle";
@@ -246,8 +247,10 @@ function normalizeElement(
 		textAlign,
 		verticalAlign,
 		autoResize: typeof raw["autoResize"] === "boolean" ? raw["autoResize"] : undefined,
-		containerId: typeof raw["containerId"] === "string" ? raw["containerId"] : null,
+containerId: typeof raw["containerId"] === "string" ? raw["containerId"] : null,
 		boundTextId: typeof raw["boundTextId"] === "string" ? raw["boundTextId"] : null,
+		imagePath: typeof raw["imagePath"] === "string" ? raw["imagePath"] : undefined,
+		aspectRatio: isFiniteNum(raw["aspectRatio"]) ? raw["aspectRatio"] : undefined,
 		locked: Boolean(raw["locked"]),
 		isDeleted: Boolean(raw["isDeleted"]),
 		zIndex: isFiniteNum(raw["zIndex"]) ? raw["zIndex"] : idx,
@@ -294,7 +297,13 @@ export function migrateBoardEntry(rawBoard: unknown, accentColor: string): Scene
 			}
 		}
 
-		return { version: 2, elements, appState: baseState };
+return {
+			version: 2,
+			title: typeof rec["title"] === "string" ? rec["title"] : undefined,
+			deleted: rec["deleted"] === true ? true : undefined,
+			elements,
+			appState: baseState
+		};
 	}
 
 	const rawList = Array.isArray(rawBoard)
@@ -375,9 +384,11 @@ export class SceneStore {
 
 	private cloneMap(map: ScenesByKey): ScenesByKey {
 		const out: ScenesByKey = new Map();
-		for (const [k, s] of map.entries()) {
+for (const [k, s] of map.entries()) {
 			out.set(k, {
 				version: 2,
+				title: s.title,
+				deleted: s.deleted,
 				elements: s.elements.map((el) => cloneSceneElement(el)),
 				appState: { ...s.appState, currentStyle: { ...s.appState.currentStyle } }
 			});
@@ -385,7 +396,11 @@ export class SceneStore {
 		return out;
 	}
 
-	private serializeScene(scene: Scene): Record<string, unknown> {
+private serializeScene(scene: Scene): Record<string, unknown> {
+		if (scene.deleted) {
+			return { version: 2, deleted: true };
+		}
+
 		const activeElements = scene.elements
 			.filter((el) => !el.isDeleted)
 			.sort((a, b) => a.zIndex - b.zIndex)
@@ -428,12 +443,14 @@ export class SceneStore {
 				if (el.elbowed) clean["elbowed"] = true;
 				if (typeof el.text === "string" && el.text.length > 0) clean["text"] = el.text;
 				if (typeof el.autoResize === "boolean") clean["autoResize"] = el.autoResize;
-				if (el.containerId) clean["containerId"] = el.containerId;
+if (el.containerId) clean["containerId"] = el.containerId;
 				if (el.boundTextId) clean["boundTextId"] = el.boundTextId;
+				if (el.imagePath) clean["imagePath"] = el.imagePath;
+				if (typeof el.aspectRatio === "number" && el.aspectRatio > 0) clean["aspectRatio"] = Number(el.aspectRatio.toFixed(4));
 				return clean;
 			});
 
-		return {
+		const out: Record<string, unknown> = {
 			version: 2,
 			elements: activeElements,
 			appState: {
@@ -445,15 +462,17 @@ export class SceneStore {
 				snapToObjects: scene.appState.snapToObjects,
 				keepToolActive: scene.appState.keepToolActive,
 				activeTool: scene.appState.activeTool,
-				currentStyle: { ...scene.appState.currentStyle }
+currentStyle: { ...scene.appState.currentStyle }
 			}
 		};
+		if (scene.title?.trim()) out["title"] = scene.title.trim();
+		return out;
 	}
 
 	private async writeScenes(scenesMap: ScenesByKey): Promise<void> {
 		const payload: Record<string, unknown> = {};
 		for (const [key, scene] of scenesMap.entries()) {
-			if (scene.elements.some((el) => !el.isDeleted)) {
+			if (scene.deleted || key.startsWith("__board_") || scene.elements.some((el) => !el.isDeleted)) {
 				payload[key] = this.serializeScene(scene);
 			}
 		}

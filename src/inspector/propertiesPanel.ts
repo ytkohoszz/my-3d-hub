@@ -180,7 +180,7 @@ export class InspectorPropertiesController {
 
 		const hasFill = display.some((e) => e.type === "rectangle" || e.type === "diamond" || e.type === "ellipse");
 		const hasLineGeom = display.some((e) => e.type !== "text");
-		const hasRound = display.some((e) => e.type === "rectangle");
+const hasRound = display.some((e) => e.type === "rectangle" || e.type === "image");
 		const hasPath = display.some((e) => e.type === "arrow" || e.type === "line");
 		const hasArrowheads = display.some((e) => e.type === "arrow");
 		const hasText = allSelected.some(
@@ -475,14 +475,15 @@ export class InspectorPropertiesController {
 		this.addOpacityRow(primary.opacity);
 	}
 
-	private getTitle(type: SceneElement["type"]): string {
+private getTitle(type: SceneElement["type"]): string {
 		const map: Record<SceneElement["type"], string> = {
 			rectangle: "Прямоугольник",
 			diamond: "Ромб",
 			ellipse: "Эллипс",
 			arrow: "Стрелка",
 			line: "Линия",
-			text: "Текст"
+			text: "Текст",
+			image: "Картинка"
 		};
 		return map[type];
 	}
