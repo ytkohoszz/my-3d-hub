@@ -644,29 +644,34 @@
 
 .hub3d-insp-swatch-grid {
 	display: grid;
-	grid-template-columns: repeat(9, 1fr);
-	gap: 4px;
+	grid-template-columns: repeat(6, 1fr);
+	gap: 6px;
 }
 
-.hub3d-insp-swatch {
+.hub3d-insp-props-panel button.hub3d-insp-swatch,
+.hub3d-insp-props-panel label.hub3d-insp-swatch {
 	position: relative;
 	width: 100%;
-	aspect-ratio: 1 / 1;
-	padding: 0;
-	border-radius: 6px;
-	border: 1.5px solid rgba(255, 255, 255, 0.16);
-	background: var(--sw-color, #9c83e8);
+	min-width: 0 !important;
+	height: 26px;
+	min-height: 0 !important;
+	padding: 0 !important;
+	box-sizing: border-box;
+	border-radius: 7px;
+	border: 1.5px solid rgba(255, 255, 255, 0.2) !important;
+	background: var(--sw-color, #9c83e8) !important;
+	background-color: var(--sw-color, #9c83e8) !important;
 	cursor: pointer;
-	box-shadow: none;
+	box-shadow: none !important;
 }
 
-.hub3d-insp-swatch.is-active {
-	border-color: #ffffff;
-	box-shadow: 0 0 0 2px var(--hub3d-accent, #9c83e8);
+.hub3d-insp-props-panel .hub3d-insp-swatch.is-active {
+	border-color: #ffffff !important;
+	box-shadow: 0 0 0 2px var(--hub3d-accent, #9c83e8) !important;
 }
 
-.hub3d-insp-swatch.is-transparent {
-	background: repeating-conic-gradient(rgba(160, 174, 192, 0.25) 0% 25%, transparent 0% 50%) 50% / 8px 8px;
+.hub3d-insp-props-panel button.hub3d-insp-swatch.is-transparent {
+	background: repeating-conic-gradient(rgba(160, 174, 192, 0.25) 0% 25%, transparent 0% 50%) 50% / 8px 8px !important;
 }
 
 .hub3d-insp-swatch.is-picker {
@@ -833,6 +838,80 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+.hub3d-note-style-popover {
+	position: absolute;
+	z-index: 45;
+	width: 248px;
+	padding: 11px 12px;
+	border-radius: 15px;
+	border: 1px solid var(--background-modifier-border);
+	background: color-mix(in srgb, var(--background-secondary) 90%, transparent);
+	backdrop-filter: blur(16px);
+	-webkit-backdrop-filter: blur(16px);
+	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+	display: flex;
+	flex-direction: column;
+	gap: 9px;
+}
+
+.hub3d-style-swatches {
+	display: grid;
+	grid-template-columns: repeat(8, 1fr);
+	gap: 5px;
+}
+
+.hub3d-style-swatch {
+	width: 22px;
+	min-width: 0 !important;
+	height: 22px;
+	min-height: 0 !important;
+	padding: 0 !important;
+	justify-self: center;
+	box-sizing: border-box;
+	border-radius: 50%;
+	border: 1.5px solid rgba(255, 255, 255, 0.2);
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.hub3d-style-swatch.is-active {
+	border-color: #ffffff;
+	transform: scale(1.12);
+}
+
+.hub3d-style-icons {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 4px;
+}
+
+.hub3d-style-icon-btn {
+	height: 28px;
+	padding: 0;
+	border-radius: 8px;
+	border: 1px solid transparent;
+	background: rgba(255, 255, 255, 0.04);
+	font-size: 14px;
+	cursor: pointer;
+	box-shadow: none;
+}
+
+.hub3d-style-icon-btn:hover {
+	background: var(--background-modifier-hover);
+}
+
+.hub3d-style-icon-btn.is-active {
+	border-color: #9c83e8;
+	background: rgba(156, 131, 232, 0.2);
+}
+
+.hub3d-style-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
 }
 .hub3d-insp-stage-inner {
 	position: relative;

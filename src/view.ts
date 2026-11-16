@@ -1,9 +1,35 @@
-import { ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath } from "obsidian";
+import { FuzzySuggestModal, ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath } from "obsidian";
 import { BubbleCanvasEngine, BubbleNode, DropTargetInfo, NavLevel } from "./canvas";
 import { extractImagesFromNote } from "./inspector/sceneStore";
 import { NoteSchemaOverlay } from "./inspector/canvasOverlay";
 import type Hub3DPlugin from "./main";
 import { AREA_NAME, Note3D, PRESET_PROGRAMS, PRESET_TOPICS, mapTopic, topicParts } from "./types";
+
+const ICON_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "svg", "gif"]);
+const NOTE_STYLE_COLORS = ["#4aab80", "#e5a158", "#599ed6", "#9c83e8", "#d85b57", "#69b5aa", "#d4c05a", "#cbd5e1"];
+const NOTE_STYLE_ICONS = ["🌲", "🌿", "📷", "💡", "🧊", "🌊", "🔥", "⚙️", "🎨", "✨"];
+
+class IconImagePickerModal extends FuzzySuggestModal<TFile> {
+	private onChoose: (file: TFile) => void;
+
+	constructor(app: ItemView["app"], onChoose: (file: TFile) => void) {
+		super(app);
+		this.onChoose = onChoose;
+		this.setPlaceholder("Выбери картинку-иконку из хранилища…");
+	}
+
+	public getItems(): TFile[] {
+		return this.app.vault.getFiles().filter((f) => ICON_IMAGE_EXTS.has(f.extension.toLowerCase()));
+	}
+
+	public getItemText(item: TFile): string {
+		return item.path;
+	}
+
+	public onChooseItem(item: TFile): void {
+		this.onChoose(item);
+	}
+}
 
 class ConfirmDeleteModal extends Modal {
 	private message: string;
@@ -100,6 +126,8 @@ private topIslandEl: HTMLElement | null = null;
 private popoverMode: ActivePopoverMode = "none";
 	private level: NavLevel = { program: null, topicPath: "" };
 	private inspectorOverlay: NoteSchemaOverlay | null = null;
+	private stylePopoverEl: HTMLElement | null = null;
+	private styleOutsideHandler?: (e: PointerEvent) => void;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Hub3DPlugin) {
 		super(leaf);
@@ -195,11 +223,15 @@ onDragStateChange: (draggingNode, overTrash, dropTarget: DropTargetInfo | null) 
 			onDropToTrash: (node) => {
 				this.handleDeleteRequest(node);
 			},
-			onMoveNoteToTopic: (note, targetTopicPath) => {
+onMoveNoteToTopic: (note, targetTopicPath) => {
 				void this.moveNoteToTopic(note, targetTopicPath);
+			},
+			onStyleNote: (note, clientX, clientY) => {
+				this.openNoteStylePopover(note, clientX, clientY);
 			}
 		});
-		this.engine.setDropZoneElements(this.trashZoneEl, this.outsideZoneEl, this.topIslandEl);
+this.engine.setDropZoneElements(this.trashZoneEl, this.outsideZoneEl, this.topIslandEl);
+		this.engine.setResourcePathResolver((path) => this.app.vault.adapter.getResourcePath(path));
 
 this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
 			if (!this.containerEl.isShown()) return;
@@ -208,6 +240,11 @@ this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
 					e.preventDefault();
 					this.inspectorOverlay.close();
 				}
+				return;
+			}
+if (e.key === "Escape" && this.stylePopoverEl) {
+				e.preventDefault();
+				this.closeNoteStylePopover();
 				return;
 			}
 			if (e.key === "Escape" && this.popoverMode !== "none") {
@@ -225,6 +262,7 @@ this.registerDomEvent(window, "keydown", (e: KeyboardEvent) => {
 	}
 
 public async onClose(): Promise<void> {
+		this.closeNoteStylePopover();
 		this.inspectorOverlay?.destroy();
 		this.inspectorOverlay = null;
 		this.engine?.destroy();
@@ -254,13 +292,14 @@ public async onClose(): Promise<void> {
 private renderAll(): void {
 		this.renderTopIsland();
 		this.renderBottomDock();
-		this.engine?.setData(
+this.engine?.setData(
 			this.notes,
 			this.plugin.settings.virtualTopics,
 			this.level,
 			this.plugin.settings.bubblePositions,
 			this.plugin.settings.bubbleLinks,
-			this.plugin.settings.clusterNames
+			this.plugin.settings.clusterNames,
+			this.plugin.settings.noteStyles || {}
 		);
 	}
 
@@ -836,7 +875,103 @@ public openInspectorForFile(file: TFile): void {
 		this.inspectorOverlay.open();
 	}
 
-	private openNodeInspector(note: Note3D): void {
+private openNodeInspector(note: Note3D): void {
 		this.openInspectorForFile(note.file);
+	}
+
+	private closeNoteStylePopover(): void {
+		if (this.styleOutsideHandler) {
+			window.removeEventListener("pointerdown", this.styleOutsideHandler, true);
+			this.styleOutsideHandler = undefined;
+		}
+		this.stylePopoverEl?.remove();
+		this.stylePopoverEl = null;
+	}
+
+	private openNoteStylePopover(note: Note3D, clientX: number, clientY: number): void {
+		this.closeNoteStylePopover();
+
+		const pop = this.contentEl.createDiv({ cls: "hub3d-note-style-popover" });
+		this.stylePopoverEl = pop;
+
+		const styles = this.plugin.settings.noteStyles;
+		const current = styles[note.path] || {};
+
+		const updateStyle = (patch: { color?: string; icon?: string; iconImage?: string } | null) => {
+			if (patch === null) {
+				delete styles[note.path];
+			} else {
+				const next = { ...(styles[note.path] || {}), ...patch };
+				if (patch.icon !== undefined) delete next.iconImage;
+				if (patch.iconImage !== undefined) delete next.icon;
+				styles[note.path] = next;
+			}
+			void this.plugin.saveSettings();
+			this.renderAll();
+		};
+
+		// 1. Цвет карточки
+		const swRow = pop.createDiv({ cls: "hub3d-style-swatches" });
+		for (const c of NOTE_STYLE_COLORS) {
+			const sw = swRow.createEl("button", {
+				cls: "hub3d-style-swatch" + (current.color === c ? " is-active" : "")
+			});
+			sw.style.backgroundColor = c;
+			sw.addEventListener("click", () => {
+				updateStyle({ color: c });
+				swRow.querySelectorAll(".hub3d-style-swatch").forEach((el) => el.removeClass("is-active"));
+				sw.addClass("is-active");
+			});
+		}
+
+		// 2. Быстрые 3D-иконки
+		const iconRow = pop.createDiv({ cls: "hub3d-style-icons" });
+		for (const ic of NOTE_STYLE_ICONS) {
+			const btn = iconRow.createEl("button", {
+				cls: "hub3d-style-icon-btn" + (current.icon === ic ? " is-active" : ""),
+				text: ic
+			});
+			btn.addEventListener("click", () => {
+				updateStyle({ icon: ic });
+				iconRow.querySelectorAll(".hub3d-style-icon-btn").forEach((el) => el.removeClass("is-active"));
+				btn.addClass("is-active");
+			});
+		}
+
+		// 3. Выбор своей картинки / Сброс
+		const actions = pop.createDiv({ cls: "hub3d-style-actions" });
+		const imgBtn = actions.createEl("button", { cls: "hub3d-dock-btn", text: "🖼 Картинка…" });
+		imgBtn.addEventListener("click", () => {
+			this.closeNoteStylePopover();
+			new IconImagePickerModal(this.app, (file) => {
+				updateStyle({ iconImage: file.path });
+			}).open();
+		});
+
+		const resetBtn = actions.createEl("button", { cls: "hub3d-dock-btn", text: "Сбросить" });
+		resetBtn.addEventListener("click", () => {
+			updateStyle(null);
+			this.closeNoteStylePopover();
+		});
+
+		// Позиционирование внутри окна
+		const rootRect = this.contentEl.getBoundingClientRect();
+		const popW = 248;
+		const popH = 148;
+		const left = Math.max(12, Math.min(rootRect.width - popW - 12, clientX - rootRect.left + 8));
+		const top = Math.max(12, Math.min(rootRect.height - popH - 12, clientY - rootRect.top - 12));
+		pop.style.left = `${Math.round(left)}px`;
+		pop.style.top = `${Math.round(top)}px`;
+
+		this.styleOutsideHandler = (e: PointerEvent) => {
+			if (!this.stylePopoverEl?.contains(e.target as Node)) {
+				this.closeNoteStylePopover();
+			}
+		};
+		window.setTimeout(() => {
+			if (this.styleOutsideHandler) {
+				window.addEventListener("pointerdown", this.styleOutsideHandler, true);
+			}
+		}, 10);
 	}
 }

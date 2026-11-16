@@ -503,7 +503,7 @@ private getTitle(type: SceneElement["type"]): string {
 		const sec = this.createSection(label);
 		const grid = this.doc.createElement("div");
 		grid.className = "hub3d-insp-swatch-grid";
-		const palette = Array.from(new Set([this.api.accentColor, ...STROKE_SWATCHES])).slice(0, 8);
+const palette = Array.from(new Set([this.api.accentColor, ...STROKE_SWATCHES])).slice(0, 5);
 		const norm = current.trim().toLowerCase();
 
 		for (const c of palette) {
@@ -511,6 +511,7 @@ private getTitle(type: SceneElement["type"]): string {
 			btn.type = "button";
 			btn.className = "hub3d-insp-swatch" + (c.toLowerCase() === norm ? " is-active" : "");
 			btn.style.setProperty("--sw-color", c);
+			btn.style.backgroundColor = c;
 			btn.addEventListener("click", () => onSelect(c));
 			grid.appendChild(btn);
 		}
@@ -533,14 +534,17 @@ private getTitle(type: SceneElement["type"]): string {
 		grid.className = "hub3d-insp-swatch-grid";
 		const norm = (current || "transparent").trim().toLowerCase();
 
-		for (const item of BG_SWATCHES) {
+for (const item of BG_SWATCHES.slice(0, 5)) {
 			const btn = this.doc.createElement("button");
 			btn.type = "button";
 			btn.className =
 				"hub3d-insp-swatch" +
 				(item.value === "transparent" ? " is-transparent" : "") +
 				(item.value.toLowerCase() === norm ? " is-active" : "");
-			if (item.value !== "transparent") btn.style.setProperty("--sw-color", item.preview);
+			if (item.value !== "transparent") {
+				btn.style.setProperty("--sw-color", item.preview);
+				btn.style.backgroundColor = item.preview;
+			}
 			btn.addEventListener("click", () => onSelect(item.value));
 			grid.appendChild(btn);
 		}

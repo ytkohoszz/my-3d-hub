@@ -1,4 +1,4 @@
-import { BubbleLink, Note3D, VirtualTopicEntry, getProgramColor, getTopicAccentColor, topicParts } from "./types";
+import { BubbleLink, Note3D, NoteStyle, VirtualTopicEntry, getProgramColor, getTopicAccentColor, topicParts } from "./types";
 
 export interface NavLevel {
 	program: string | null;
@@ -66,8 +66,9 @@ export interface CanvasCallbacks {
 		overTrash: boolean,
 		dropTarget: DropTargetInfo | null
 	) => void;
-	onDropToTrash: (node: BubbleNode) => void;
+onDropToTrash: (node: BubbleNode) => void;
 	onMoveNoteToTopic: (note: Note3D, targetTopicPath: string) => void;
+	onStyleNote: (note: Note3D, clientX: number, clientY: number) => void;
 }
 
 export class BubbleCanvasEngine {
@@ -79,9 +80,12 @@ export class BubbleCanvasEngine {
 
 	private nodes: BubbleNode[] = [];
 	private links: BubbleLink[] = [];
-	private clusterNames: Record<string, string> = {};
+private clusterNames: Record<string, string> = {};
 	private clusters: ClusterGroup[] = [];
 	private savedPositions: Record<string, { x: number; y: number }> = {};
+	private noteStyles: Record<string, NoteStyle> = {};
+	private resolveResourcePath?: (vaultPath: string) => string;
+	private iconImages = new Map<string, HTMLImageElement>();
 
 	// Камера
 	private camX = 0;
@@ -257,6 +261,10 @@ public setDropZoneElements(
 		return { target: null, bubble: null };
 	}
 
+public setResourcePathResolver(resolver: (vaultPath: string) => string): void {
+		this.resolveResourcePath = resolver;
+	}
+
 	public resetCamera(): void {
 		this.targetCamX = 0;
 		this.targetCamY = 0;
@@ -269,11 +277,13 @@ public setDropZoneElements(
 		level: NavLevel,
 		savedPositions: Record<string, { x: number; y: number }>,
 		links: BubbleLink[],
-		clusterNames: Record<string, string>
+		clusterNames: Record<string, string>,
+		noteStyles: Record<string, NoteStyle> = {}
 	): void {
 		this.savedPositions = savedPositions;
 		this.links = links;
 		this.clusterNames = clusterNames;
+		this.noteStyles = noteStyles;
 		const nextNodes: BubbleNode[] = [];
 
 		if (level.program === null) {
@@ -422,9 +432,10 @@ nextNodes.push(this.createNode({
 				}));
 			});
 
-			untaggedNotes.forEach((note, idx) => {
+untaggedNotes.forEach((note, idx) => {
 				const id = `note::${prog}::root::${note.path}`;
 				const pos = this.getInitialPos(id, idx, untaggedNotes.length, 290);
+				const customColor = this.noteStyles[note.path]?.color;
 				nextNodes.push(this.createNode({
 					id,
 					kind: "note",
@@ -432,8 +443,8 @@ nextNodes.push(this.createNode({
 					subLabel: "без темы",
 					detailLine: "",
 					count: 1,
-					color: "#d85b57",
-					radius: 40,
+					color: customColor || "#d85b57",
+					radius: 54,
 					x: pos.x,
 					y: pos.y,
 					phase: idx * 0.9,
@@ -511,9 +522,10 @@ nextNodes.push(this.createNode({
 const directList = Array.from(directNotes.values()).sort((a, b) => b.mtime - a.mtime);
 			const noteRingRadius = folderEntries.length > 0 ? 275 : 175;
 
-			directList.forEach((note, idx) => {
+directList.forEach((note, idx) => {
 				const id = `note::${prog}::${currentPrefix}::${note.path}`;
 				const pos = this.getInitialPos(id, idx, directList.length, noteRingRadius);
+				const customColor = this.noteStyles[note.path]?.color;
 				nextNodes.push(this.createNode({
 					id,
 					kind: "note",
@@ -521,7 +533,7 @@ const directList = Array.from(directNotes.values()).sort((a, b) => b.mtime - a.m
 					subLabel: "",
 					detailLine: "",
 					count: 1,
-					color: note.pinned ? "#e5a158" : progColor,
+					color: customColor || (note.pinned ? "#e5a158" : progColor),
 					radius: 54,
 					x: pos.x,
 					y: pos.y,
@@ -726,14 +738,20 @@ private handleResize(): void {
 		};
 	}
 
-	private hitTest(wx: number, wy: number): BubbleNode | null {
+private hitTest(wx: number, wy: number): BubbleNode | null {
 		for (let i = this.nodes.length - 1; i >= 0; i--) {
 			const n = this.nodes[i];
 			if (!n) continue;
+			if (n.kind === "note") {
+				const halfH = (this.noteHalfHeights.get(n.id) ?? 26) + 4;
+				if (Math.abs(wx - n.x) <= 126 && Math.abs(wy - n.y) <= halfH) {
+					return n;
+				}
+				continue;
+			}
 			const dx = wx - n.x;
 			const dy = wy - n.y;
-			const hitR = n.kind === "note" ? n.radius + 10 : n.radius;
-			if (dx * dx + dy * dy <= hitR * hitR) {
+			if (dx * dx + dy * dy <= n.radius * n.radius) {
 				return n;
 			}
 		}
@@ -1031,10 +1049,20 @@ const canTrash =
 			const elapsed = performance.now() - this.pointerDownTime;
 			const world = this.screenToWorld(sx, sy);
 
-			if (this.dragMode === "link" && this.linkSourceNode) {
-				const targetNode = this.hitTest(world.x, world.y);
-				if (targetNode && targetNode.id !== this.linkSourceNode.id) {
-					this.callbacks.onToggleLink(this.linkSourceNode.id, targetNode.id);
+if (this.dragMode === "link" && this.linkSourceNode) {
+				if (
+					movedDist < 7 &&
+					elapsed < 450 &&
+					e.button === 2 &&
+					this.linkSourceNode.kind === "note" &&
+					this.linkSourceNode.note
+				) {
+					this.callbacks.onStyleNote(this.linkSourceNode.note, e.clientX, e.clientY);
+				} else {
+					const targetNode = this.hitTest(world.x, world.y);
+					if (targetNode && targetNode.id !== this.linkSourceNode.id) {
+						this.callbacks.onToggleLink(this.linkSourceNode.id, targetNode.id);
+					}
 				}
 			} else if (this.dragMode === "cluster" && this.draggedCluster) {
 				if (movedDist < 7 && elapsed < 450) {
@@ -1886,21 +1914,32 @@ const hasGlyph = this.drawBubbleGlyph(ctx, node, r, isHover);
 		return lines.length ? lines : [text];
 	}
 
+private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
+		const cached = this.iconImages.get(vaultPath);
+		if (cached) return cached;
+		if (!this.resolveResourcePath) return null;
+		const img = new Image();
+		img.src = this.resolveResourcePath(vaultPath);
+		this.iconImages.set(vaultPath, img);
+		return img;
+	}
+
 	private drawNoteCard(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
 		const isHover = this.hoveredNode === node || this.draggedNode === node;
-		const w = 216;
+		const style = node.note ? this.noteStyles[node.note.path] : undefined;
+		const w = 248;
 		const lineHeight = 17;
-		const maxTextW = node.note?.hasImages ? w - 46 : w - 26;
+		const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 
-ctx.save();
+		ctx.save();
 		ctx.font = `600 13.5px ${this.uiFontFamily}`;
 		const lines = this.wrapLines(ctx, node.label, maxTextW);
-		const h = Math.max(46, lines.length * lineHeight + 20);
+		const h = Math.max(52, lines.length * lineHeight + 20);
 		this.noteHalfHeights.set(node.id, h / 2);
 
 		const x = node.x - w / 2;
 		const y = node.y - h / 2;
-		const rad = 12;
+		const rad = 14;
 
 		ctx.beginPath();
 		ctx.roundRect(x, y, w, h, rad);
@@ -1908,21 +1947,53 @@ ctx.save();
 		ctx.fill();
 
 		ctx.lineWidth = isHover ? 1.8 : 1.2;
-		ctx.strokeStyle = isHover ? node.color : "rgba(155, 160, 185, 0.3)";
+		ctx.strokeStyle = isHover ? node.color : this.hexToRgba(node.color, style?.color ? 0.55 : 0.28);
 		ctx.stroke();
 
-		ctx.beginPath();
-		ctx.roundRect(x + 5, y + 9, 3.5, h - 18, 2);
-		ctx.fillStyle = node.color;
-		ctx.fill();
+		// Скруглённый бейдж иконки слева (32x32)
+		const iconSize = 32;
+		const ix = x + 11;
+		const iy = node.y - iconSize / 2;
 
+		ctx.beginPath();
+		ctx.roundRect(ix, iy, iconSize, iconSize, 9);
+		ctx.fillStyle = this.hexToRgba(node.color, 0.16);
+		ctx.fill();
+		ctx.lineWidth = 1.1;
+		ctx.strokeStyle = this.hexToRgba(node.color, 0.45);
+		ctx.stroke();
+
+		const iconImg = style?.iconImage ? this.getCachedIconImage(style.iconImage) : null;
+		if (iconImg && iconImg.complete && iconImg.naturalWidth > 0) {
+			ctx.save();
+			ctx.beginPath();
+			ctx.roundRect(ix + 1, iy + 1, iconSize - 2, iconSize - 2, 8);
+			ctx.clip();
+			const iw = iconImg.naturalWidth;
+			const ih = iconImg.naturalHeight;
+			const side = Math.min(iw, ih);
+			ctx.drawImage(iconImg, (iw - side) / 2, (ih - side) / 2, side, side, ix + 1, iy + 1, iconSize - 2, iconSize - 2);
+			ctx.restore();
+		} else if (style?.icon) {
+			ctx.font = `17px ${this.uiFontFamily}`;
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.fillText(style.icon, ix + iconSize / 2, node.y + 1);
+		} else {
+			ctx.beginPath();
+			ctx.arc(ix + iconSize / 2, node.y, 4.2, 0, Math.PI * 2);
+			ctx.fillStyle = node.color;
+			ctx.fill();
+		}
+
+		ctx.font = `600 13.5px ${this.uiFontFamily}`;
 		ctx.fillStyle = "#f4f6fb";
 		ctx.textAlign = "left";
 		ctx.textBaseline = "middle";
 
 		const startY = node.y - ((lines.length - 1) * lineHeight) / 2;
 		lines.forEach((line, idx) => {
-			ctx.fillText(line, x + 15, startY + idx * lineHeight);
+			ctx.fillText(line, x + 52, startY + idx * lineHeight);
 		});
 		ctx.restore();
 	}
@@ -1931,7 +2002,7 @@ ctx.save();
 		for (const node of this.nodes) {
 			const badge = this.actionBadges.get(node.id);
 			if (!badge) continue;
-			const screen = this.worldToScreen(node.x + 88, node.y);
+			const screen = this.worldToScreen(node.x + 104, node.y);
 			badge.style.transform = `translate3d(${Math.round(screen.x - 11)}px, ${Math.round(screen.y - 11)}px, 0) scale(${this.camZoom.toFixed(2)})`;
 		}
 	}

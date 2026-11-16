@@ -24,12 +24,19 @@ export interface BubbleLink {
 	to: string;   // ID целевого пузыря
 }
 
+export interface NoteStyle {
+	color?: string;
+	icon?: string;
+	iconImage?: string;
+}
+
 export interface Hub3DSettings {
 	targetFolder: string;
 	virtualTopics: VirtualTopicEntry[];
 	bubblePositions: Record<string, { x: number; y: number }>;
 	bubbleLinks: BubbleLink[];
 	clusterNames: Record<string, string>; // Ключ: отсортированный через "|" список ID узлов кластера
+	noteStyles: Record<string, NoteStyle>;
 }
 
 export const DEFAULT_SETTINGS: Hub3DSettings = {
@@ -37,7 +44,8 @@ export const DEFAULT_SETTINGS: Hub3DSettings = {
 	virtualTopics: [],
 	bubblePositions: {},
 	bubbleLinks: [],
-	clusterNames: {}
+	clusterNames: {},
+	noteStyles: {}
 };
 
 export const AREA_NAME = "3D";
