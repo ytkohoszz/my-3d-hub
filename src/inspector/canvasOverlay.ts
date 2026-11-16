@@ -624,10 +624,11 @@ this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
 		this.canvasEl.style.cursor = this.spacePressed ? "grab" : map[this.activeTool];
 	}
 
-	private handleResize(): void {
-		const rect = this.viewportEl.getBoundingClientRect();
-		this.vpWidth = Math.max(1, rect.width);
-		this.vpHeight = Math.max(1, rect.height);
+private handleResize(): void {
+		const w = this.canvasEl.clientWidth || this.viewportEl.clientWidth;
+		const h = this.canvasEl.clientHeight || this.viewportEl.clientHeight;
+		this.vpWidth = Math.max(1, w);
+		this.vpHeight = Math.max(1, h);
 		this.dpr = Math.min(this.win.devicePixelRatio || 1, 2);
 		this.canvasEl.width = Math.round(this.vpWidth * this.dpr);
 		this.canvasEl.height = Math.round(this.vpHeight * this.dpr);
@@ -786,11 +787,10 @@ for (const el of this.scene.elements) {
 					ctx.rotate(el.angle);
 					ctx.translate(-cx, -cy);
 				}
-				const pad = 4 * inv;
-				ctx.strokeRect(el.x - pad, el.y - pad, el.width + pad * 2, el.height + pad * 2);
+ctx.strokeRect(el.x, el.y, el.width, el.height);
 				if (!el.locked) {
 					ctx.beginPath();
-					ctx.moveTo(cx, el.y - pad);
+					ctx.moveTo(cx, el.y);
 					ctx.lineTo(cx, el.y - ROTATE_HANDLE_OFFSET_PX * inv);
 					ctx.stroke();
 				}
@@ -951,9 +951,31 @@ for (const el of this.scene.elements) {
 
 		this.canvasEl.addEventListener("pointermove", (e: PointerEvent) => {
 			const world = this.screenToWorld(e.clientX, e.clientY);
-			const cur = this.interaction;
+const cur = this.interaction;
 			if (!cur || cur.pointerId !== e.pointerId) {
-				if (this.activeTool === "arrow" || this.activeTool === "line") {
+				if (this.activeTool === "select" && !this.spacePressed) {
+					const selected = this.getSelectedElements();
+					const hh = hitTestHandles(getTransformHandles(selected, this.scene.appState.zoom), world, this.scene.appState.zoom);
+					if (hh) {
+						const cursorMap: Record<string, string> = {
+							nw: "nwse-resize",
+							se: "nwse-resize",
+							ne: "nesw-resize",
+							sw: "nesw-resize",
+							n: "ns-resize",
+							s: "ns-resize",
+							e: "ew-resize",
+							w: "ew-resize",
+							rotate: "grab",
+							point: "grab",
+							midpoint: "pointer"
+						};
+						this.canvasEl.style.cursor = cursorMap[hh.kind] ?? "pointer";
+					} else {
+						const hit = getElementAtPoint(this.scene.elements, world, this.scene.appState.zoom);
+						this.canvasEl.style.cursor = hit ? "move" : "default";
+					}
+				} else if (this.activeTool === "arrow" || this.activeTool === "line") {
 					const m = findNearestBindingTarget(world, this.scene.elements, undefined, 24 / Math.max(0.1, this.scene.appState.zoom));
 					if ((m?.element ?? null) !== this.bindingHighlight) {
 						this.bindingHighlight = m?.element ?? null;

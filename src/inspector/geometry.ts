@@ -23,7 +23,7 @@ import {
 } from "./text";
 
 export const ROTATE_HANDLE_OFFSET_PX = 26;
-export const HANDLE_HIT_RADIUS_PX = 8;
+export const HANDLE_HIT_RADIUS_PX = 12;
 export const MIN_RESIZE_SIZE = 4;
 export const BINDING_SNAP_DISTANCE = 24;
 export const OBJECT_SNAP_THRESHOLD = 6;
@@ -186,7 +186,7 @@ function isInsideShape(el: SceneElement, local: ScenePoint, margin: number): boo
 
 function hitTestSolid(el: SceneElement, pt: ScenePoint, zoom: number): boolean {
 	if (el.isDeleted) return false;
-	const threshold = el.strokeWidth / 2 + 6 / Math.max(0.1, zoom);
+	const threshold = el.strokeWidth / 2 + 8 / Math.max(0.1, zoom);
 	if (isPathElement(el)) {
 		const pts = getConnectorPolyline(el);
 		for (let i = 0; i < pts.length - 1; i++) {
@@ -258,15 +258,17 @@ export function getTransformHandles(selectedElements: readonly SceneElement[], z
 		const cy = el.y + el.height / 2;
 		const angle = el.angle || 0;
 		const rotOffset = ROTATE_HANDLE_OFFSET_PX / Math.max(0.1, zoom);
+const showNS = el.width * zoom >= 24;
+		const showEW = el.height * zoom >= 24;
 		const raw: Array<{ kind: HandleKind; x: number; y: number }> = [
 			{ kind: "nw", x: el.x, y: el.y },
-			{ kind: "n", x: cx, y: el.y },
+			...(showNS ? [{ kind: "n" as HandleKind, x: cx, y: el.y }] : []),
 			{ kind: "ne", x: el.x + el.width, y: el.y },
-			{ kind: "e", x: el.x + el.width, y: cy },
+			...(showEW ? [{ kind: "e" as HandleKind, x: el.x + el.width, y: cy }] : []),
 			{ kind: "se", x: el.x + el.width, y: el.y + el.height },
-			{ kind: "s", x: cx, y: el.y + el.height },
+			...(showNS ? [{ kind: "s" as HandleKind, x: cx, y: el.y + el.height }] : []),
 			{ kind: "sw", x: el.x, y: el.y + el.height },
-			{ kind: "w", x: el.x, y: cy },
+			...(showEW ? [{ kind: "w" as HandleKind, x: el.x, y: cy }] : []),
 			{ kind: "rotate", x: cx, y: el.y - rotOffset }
 		];
 		return raw.map((h) => {
@@ -291,14 +293,32 @@ export function getTransformHandles(selectedElements: readonly SceneElement[], z
 	];
 }
 
+const HANDLE_PRIORITY: Partial<Record<HandleKind, number>> = {
+	rotate: 0,
+	point: 0,
+	nw: 1,
+	ne: 1,
+	se: 1,
+	sw: 1,
+	midpoint: 2,
+	n: 2,
+	e: 2,
+	s: 2,
+	w: 2
+};
+
 export function hitTestHandles(handles: readonly HandleDescriptor[], pt: ScenePoint, zoom = 1): HandleDescriptor | null {
 	const radius = (HANDLE_HIT_RADIUS_PX + 2) / Math.max(0.1, zoom);
 	let best: HandleDescriptor | null = null;
+	let bestPriority = Infinity;
 	let bestDist = Infinity;
 	for (const handle of handles) {
 		const dist = Math.hypot(pt.x - handle.x, pt.y - handle.y);
-		if (dist <= radius && dist < bestDist) {
+		if (dist > radius) continue;
+		const prio = HANDLE_PRIORITY[handle.kind] ?? 3;
+		if (prio < bestPriority || (prio === bestPriority && dist < bestDist)) {
 			best = handle;
+			bestPriority = prio;
 			bestDist = dist;
 		}
 	}
