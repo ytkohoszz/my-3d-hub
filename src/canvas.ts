@@ -594,6 +594,7 @@ directList.forEach((note, idx) => {
 		}
 
 		this.nodes = nextNodes;
+		this.resolveAllOverlaps();
 		this.recomputeClusters();
 		this.rebuildActionBadges();
 	}
@@ -627,25 +628,113 @@ private getInitialPos(id: string, index: number, total: number, ringRadius: numb
 		if (total <= 1) return { x: 0, y: 0 };
 
 		if (total > 7) {
-			const innerCount = Math.min(5, Math.floor(total / 2));
+			const innerCount = Math.min(6, Math.floor(total / 2));
 			if (index < innerCount) {
 				const angle = (index / innerCount) * Math.PI * 2 - Math.PI / 2;
-				const r = ringRadius * 0.95;
+				const r = Math.max(ringRadius, 175);
 				return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 			}
 			const outerIdx = index - innerCount;
 			const outerCount = total - innerCount;
 			const angle = (outerIdx / outerCount) * Math.PI * 2 - Math.PI / 2 + Math.PI / outerCount;
-			const r = ringRadius * 1.92 + (outerIdx % 2 === 0 ? 12 : -12);
+			const r = Math.max(ringRadius * 2.15, 340);
 			return { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
 		}
 
 		const angle = (index / total) * Math.PI * 2 - Math.PI / 2;
-		const jitter = (index % 2 === 0 ? 1 : -1) * 14;
+		const r = Math.max(ringRadius, total * 28);
 		return {
-			x: Math.cos(angle) * (ringRadius + jitter),
-			y: Math.sin(angle) * (ringRadius + jitter)
+			x: Math.cos(angle) * r,
+			y: Math.sin(angle) * r
 		};
+	}
+
+	private getNodeBoundsHalf(node: BubbleNode): { hw: number; hh: number; isRect: boolean } {
+		if (node.kind === "note") {
+			let hh = this.noteHalfHeights.get(node.id);
+			if (hh === undefined) {
+				this.ctx.font = `500 13.5px ${this.uiFontFamily}`;
+				const maxTextW = node.note?.hasImages ? 248 - 84 : 248 - 64;
+				const lines = this.wrapLines(this.ctx, node.label, maxTextW);
+				const h = Math.max(52, lines.length * 17 + 20);
+				hh = h / 2;
+				this.noteHalfHeights.set(node.id, hh);
+			}
+			return { hw: 124, hh, isRect: true };
+		}
+		return { hw: node.radius, hh: node.radius, isRect: false };
+	}
+
+	private computeSeparationVector(a: BubbleNode, b: BubbleNode, gap = 22): { dx: number; dy: number } | null {
+		const ba = this.getNodeBoundsHalf(a);
+		const bb = this.getNodeBoundsHalf(b);
+
+		if (!ba.isRect && !bb.isRect) {
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			const dist = Math.hypot(dx, dy);
+			const minDist = a.radius + b.radius + gap;
+			if (dist >= minDist) return null;
+			const overlap = minDist - dist;
+			if (dist < 0.001) return { dx: overlap, dy: 0 };
+			return { dx: (dx / dist) * overlap, dy: (dy / dist) * overlap };
+		}
+
+		const ox = ba.hw + bb.hw + gap - Math.abs(b.x - a.x);
+		const oy = ba.hh + bb.hh + gap - Math.abs(b.y - a.y);
+		if (ox <= 0 || oy <= 0) return null;
+
+		if (ox < oy) {
+			const sign = b.x >= a.x ? 1 : -1;
+			return { dx: sign * ox, dy: 0 };
+		}
+		const sign = b.y >= a.y ? 1 : -1;
+		return { dx: 0, dy: sign * oy };
+	}
+
+	private resolveAllOverlaps(): void {
+		const n = this.nodes.length;
+		if (n < 2) return;
+
+		for (let iter = 0; iter < 40; iter++) {
+			let moved = false;
+			for (let i = 0; i < n; i++) {
+				const a = this.nodes[i]!;
+				for (let j = i + 1; j < n; j++) {
+					const b = this.nodes[j]!;
+					const sep = this.computeSeparationVector(a, b, 22);
+					if (!sep) continue;
+					a.x -= sep.dx * 0.5;
+					a.y -= sep.dy * 0.5;
+					b.x += sep.dx * 0.5;
+					b.y += sep.dy * 0.5;
+					moved = true;
+				}
+			}
+			if (!moved) break;
+		}
+
+		for (const node of this.nodes) {
+			node.anchorX = node.x;
+			node.anchorY = node.y;
+		}
+	}
+
+	private snapNodeToSafeZone(target: BubbleNode): void {
+		for (let iter = 0; iter < 24; iter++) {
+			let moved = false;
+			for (const other of this.nodes) {
+				if (other === target) continue;
+				const sep = this.computeSeparationVector(other, target, 22);
+				if (!sep) continue;
+				target.x += sep.dx;
+				target.y += sep.dy;
+				moved = true;
+			}
+			if (!moved) break;
+		}
+		target.anchorX = target.x;
+		target.anchorY = target.y;
 	}
 
 	/**
@@ -1125,6 +1214,7 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 						this.callbacks.onOpenNote(droppedNode.note, e.ctrlKey || e.metaKey);
 					}
 				} else if (movedDist >= 7) {
+					this.snapNodeToSafeZone(droppedNode);
 					this.callbacks.onSavePosition(
 						droppedNode.id,
 						Math.round(droppedNode.anchorX),
@@ -1202,41 +1292,6 @@ private stepPhysics(timeSec: number, dt: number): void {
 		this.camX += (this.targetCamX - this.camX) * camLerp;
 		this.camY += (this.targetCamY - this.camY) * camLerp;
 		this.camZoom += (this.targetCamZoom - this.camZoom) * camLerp;
-
-		// 1. Спокойный возврат к опорной точке (без парения)
-		const posLerp = 1 - Math.pow(0.0005, dt);
-		for (const n of this.nodes) {
-			if (n === this.draggedNode || this.draggedCluster?.nodes.includes(n)) continue;
-			n.x += (n.anchorX - n.x) * posLerp;
-			n.y += (n.anchorY - n.y) * posLerp;
-			n.vx = 0;
-			n.vy = 0;
-		}
-
-		// 2. Мягкое раздвигание при наложении (без желейных деформаций)
-		for (let i = 0; i < this.nodes.length; i++) {
-			const a = this.nodes[i];
-			if (!a) continue;
-			for (let j = i + 1; j < this.nodes.length; j++) {
-				const b = this.nodes[j];
-				if (!b) continue;
-				if (a === this.draggedNode || b === this.draggedNode) continue;
-
-				const dx = b.x - a.x;
-				const dy = b.y - a.y;
-				const dist = Math.hypot(dx, dy) || 0.001;
-				const minDist = a.radius + b.radius + 16;
-				if (dist < minDist) {
-					const push = (minDist - dist) * 0.12;
-					const nx = dx / dist;
-					const ny = dy / dist;
-					a.x -= nx * push;
-					a.y -= ny * push;
-					b.x += nx * push;
-					b.y += ny * push;
-				}
-			}
-		}
 	}
 
 	private render(): void {
@@ -1461,21 +1516,31 @@ private drawBubble(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
 		const isPendingSource = this.pendingLinkFromId === node.id;
 		const isDropCatch = this.dropHoverBubble === node;
 		const isHover = this.hoveredNode === node || this.draggedNode === node || isPendingSource || isDropCatch;
-		const r = node.radius * (isDropCatch ? 1.04 : 1);
+		const r = node.radius;
 
 		ctx.save();
+		if (isHover || isDropCatch) {
+			ctx.beginPath();
+			ctx.arc(node.x, node.y, r + 3.5, 0, Math.PI * 2);
+			ctx.strokeStyle = isDropCatch ? this.themeColors.green : this.themeColors.borderStrong;
+			ctx.globalAlpha = 0.25;
+			ctx.lineWidth = 3;
+			ctx.stroke();
+			ctx.globalAlpha = 1;
+		}
+
 		ctx.beginPath();
 		ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
 		ctx.fillStyle = isHover ? this.themeColors.surfaceHover : this.themeColors.surface;
 		ctx.fill();
 
-		ctx.lineWidth = isDropCatch ? 2.2 : isPendingSource ? 2 : isHover ? 1.5 : 1;
+		ctx.lineWidth = isDropCatch ? 2 : isPendingSource ? 2 : isHover ? 1.4 : 1;
 		ctx.strokeStyle = isDropCatch
 			? this.themeColors.green
 			: isPendingSource
 			? this.themeColors.accent
 			: isHover
-			? this.themeColors.borderStrong
+			? this.themeColors.textMuted
 			: this.themeColors.border;
 		ctx.stroke();
 		ctx.restore();
@@ -1507,11 +1572,11 @@ private drawBubble(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
 				: Math.max(13.5, Math.min(18, Math.round(node.radius * 0.27)));
 
 			const words = node.label.split(/\s+/).filter(Boolean);
-			while (fontSize > 11.5) {
+			while (fontSize > 9.5) {
 				ctx.font = `600 ${fontSize}px ${this.uiFontFamily}`;
 				const widestWord = words.reduce((max, w) => Math.max(max, ctx.measureText(w).width), 0);
 				if (widestWord <= maxTextW) break;
-				fontSize -= 0.75;
+				fontSize -= 0.5;
 			}
 			ctx.font = `600 ${fontSize}px ${this.uiFontFamily}`;
 			const rawLines = this.wrapLines(ctx, node.label, maxTextW);
@@ -1750,13 +1815,23 @@ const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 		const y = node.y - h / 2;
 		const rad = 14;
 
+		if (isHover) {
+			ctx.beginPath();
+			ctx.roundRect(x - 3, y - 3, w + 6, h + 6, rad + 3);
+			ctx.strokeStyle = this.themeColors.borderStrong;
+			ctx.globalAlpha = 0.25;
+			ctx.lineWidth = 3;
+			ctx.stroke();
+			ctx.globalAlpha = 1;
+		}
+
 		ctx.beginPath();
 		ctx.roundRect(x, y, w, h, rad);
 		ctx.fillStyle = isHover ? this.themeColors.surfaceHover : this.themeColors.surface;
 		ctx.fill();
 
 		ctx.lineWidth = isHover ? 1.4 : 1;
-		ctx.strokeStyle = isHover ? this.themeColors.borderStrong : this.themeColors.border;
+		ctx.strokeStyle = isHover ? this.themeColors.textMuted : this.themeColors.border;
 		ctx.stroke();
 
 		// Скруглённый бейдж иконки слева (32x32)

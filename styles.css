@@ -77,8 +77,8 @@
 /* Верхний навигационный остров (Уровень 3 — стекло) */
 .hub3d-top-island {
 	position: absolute;
-	top: calc(14px + var(--safe-area-inset-top, 0px));
-	left: 16px;
+	top: calc(12px + var(--safe-area-inset-top, 0px));
+	left: 52px;
 	z-index: 20;
 	display: inline-flex;
 	align-items: center;
@@ -93,7 +93,7 @@
 	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
 }
 
-.hub3d-crumb-btn {
+.hub3d-root button.hub3d-crumb-btn {
 	appearance: none;
 	border: none;
 	outline: none;
@@ -104,6 +104,7 @@
 	border-radius: var(--pill-radius, var(--radius-l, 18px));
 	-electron-corner-smoothing: var(--corner-smoothing, 60%);
 	background: transparent;
+	background-color: transparent;
 	color: var(--icon-color, var(--text-muted));
 	font-family: var(--font-interface);
 	font-size: 0.82em;
@@ -114,16 +115,16 @@
 	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out), transform var(--anim-duration-fast, 150ms) var(--vl-ease-out, cubic-bezier(0.3, 0.75, 0, 1));
 }
 
-.hub3d-crumb-btn:hover {
+.hub3d-root button.hub3d-crumb-btn:hover {
 	background: var(--control-icon-background, var(--background-modifier-hover));
 	color: var(--text-normal);
 }
 
-.hub3d-crumb-btn:active {
+.hub3d-root button.hub3d-crumb-btn:active {
 	filter: opacity(65%);
 }
 
-.hub3d-crumb-btn.is-current {
+.hub3d-root button.hub3d-crumb-btn.is-current {
 	color: var(--color-base-100, var(--text-normal));
 	font-weight: var(--font-semibold, 600);
 	background: var(--trans-faint-10, var(--background-modifier-hover));
