@@ -129,9 +129,33 @@ private rafId: number | null = null;
 	private height = 0;
 private dpr = 1;
 	private uiFontFamily = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-	private resizeObserver: ResizeObserver;
+	private themeColors = {
+		surface: "#1f2128",
+		surfaceHover: "#282b34",
+		surfaceAlt: "#181a20",
+		border: "rgba(160, 166, 184, 0.22)",
+		borderStrong: "rgba(160, 166, 184, 0.45)",
+		textNormal: "#e6e8ef",
+		textMuted: "#9aa0b2",
+		textFaint: "#6c7285",
+		accent: "#7c859e",
+		green: "#4aab80",
+		red: "#d85b57"
+	};
+private resizeObserver: ResizeObserver;
 
 	private actionBadges = new Map<string, HTMLElement>();
+	private lastBadgeTransforms = new Map<string, string>();
+	private bubbleTextCache = new Map<string, { fontSize: number; lines: string[]; lineHeight: number }>();
+	private cardLayoutCache = new Map<string, { lines: string[]; h: number }>();
+	private gridPattern: CanvasPattern | null = null;
+	private gridPatternStep = 0;
+	private paused = false;
+	private lastRenderTime = 0;
+	private focusWakeHandler = () => {
+		this.lastTime = performance.now();
+		this.lastRenderTime = 0;
+	};
 
 	constructor(host: HTMLElement, callbacks: CanvasCallbacks) {
 		this.host = host;
@@ -153,11 +177,21 @@ private dpr = 1;
 		this.resizeObserver.observe(this.host);
 		this.handleResize();
 
+window.addEventListener("focus", this.focusWakeHandler);
 		this.bindEvents();
 		this.startLoop();
 	}
 
+	public setPaused(paused: boolean): void {
+		this.paused = paused;
+		if (!paused) {
+			this.lastTime = performance.now();
+			this.lastRenderTime = 0;
+		}
+	}
+
 	public destroy(): void {
+		window.removeEventListener("focus", this.focusWakeHandler);
 		if (this.rafId !== null) {
 			cancelAnimationFrame(this.rafId);
 			this.rafId = null;
@@ -280,10 +314,12 @@ public setResourcePathResolver(resolver: (vaultPath: string) => string): void {
 		clusterNames: Record<string, string>,
 		noteStyles: Record<string, NoteStyle> = {}
 	): void {
-		this.savedPositions = savedPositions;
+this.savedPositions = savedPositions;
 		this.links = links;
 		this.clusterNames = clusterNames;
 		this.noteStyles = noteStyles;
+		this.bubbleTextCache.clear();
+		this.cardLayoutCache.clear();
 		const nextNodes: BubbleNode[] = [];
 
 		if (level.program === null) {
@@ -715,10 +751,28 @@ private handleResize(): void {
 		this.height = Math.max(1, rect.height);
 		this.dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-		const computedFont = getComputedStyle(this.host).fontFamily;
-		if (computedFont && !computedFont.includes("var(")) {
+const cs = getComputedStyle(this.host);
+		const computedFont = cs.fontFamily;
+		if (computedFont && !computedFont.includes("var(") && computedFont !== this.uiFontFamily) {
 			this.uiFontFamily = computedFont;
+			this.bubbleTextCache.clear();
+			this.cardLayoutCache.clear();
 		}
+		const pick = (v: string, fb: string) => cs.getPropertyValue(v).trim() || fb;
+		this.themeColors = {
+			surface: pick("--background-secondary", "#1f2128"),
+			surfaceHover: pick("--background-modifier-hover", "#282b34"),
+			surfaceAlt: pick("--background-primary", "#181a20"),
+			border: pick("--background-modifier-border", "rgba(160, 166, 184, 0.22)"),
+			borderStrong: pick("--background-modifier-border-hover", "rgba(160, 166, 184, 0.45)"),
+			textNormal: pick("--text-normal", "#e6e8ef"),
+			textMuted: pick("--text-muted", "#9aa0b2"),
+			textFaint: pick("--text-faint", "#6c7285"),
+			accent: pick("--interactive-accent", "#7c859e"),
+			green: pick("--color-green", "#4aab80"),
+			red: pick("--color-red", "#d85b57")
+		};
+		this.gridPattern = null;
 
 		this.canvas.width = Math.round(this.width * this.dpr);
 		this.canvas.height = Math.round(this.height * this.dpr);
@@ -774,47 +828,23 @@ private hitTestClusterHeader(wx: number, wy: number): ClusterGroup | null {
 		return null;
 	}
 
-private getLinkPoints(a: BubbleNode, b: BubbleNode, seed: number): Array<{ x: number; y: number }> {
+private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: number; y: number }> {
 		const dx = b.x - a.x;
 		const dy = b.y - a.y;
 		const dist = Math.hypot(dx, dy) || 0.001;
 		const tx = dx / dist;
 		const ty = dy / dist;
-		const nx = -ty;
-		const ny = tx;
 
-		const startPad = a.kind === "note" ? 36 : Math.max(0, a.radius - 4);
-		const endPad = b.kind === "note" ? 36 : Math.max(0, b.radius - 4);
+		const startPad = a.kind === "note" ? 36 : a.radius;
+		const endPad = b.kind === "note" ? 36 : b.radius;
 
-		let sx = a.x;
-		let sy = a.y;
-		let ex = b.x;
-		let ey = b.y;
-		if (dist > startPad + endPad + 12) {
-			sx = a.x + tx * startPad;
-			sy = a.y + ty * startPad;
-			ex = b.x - tx * endPad;
-			ey = b.y - ty * endPad;
+		if (dist <= startPad + endPad + 8) {
+			return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
 		}
-
-		const span = Math.hypot(ex - sx, ey - sy);
-		const amp = Math.min(24, Math.max(8, span * 0.16));
-		const steps = 10;
-		const pts: Array<{ x: number; y: number }> = [];
-
-		for (let i = 0; i <= steps; i++) {
-			const t = i / steps;
-			const env = Math.sin(t * Math.PI);
-			const wave =
-				Math.sin(t * Math.PI * 2 + this.animTimeSec * 2.1 + seed * 1.37) * 0.68 +
-				Math.cos(t * Math.PI * 1.2 - this.animTimeSec * 1.45 + seed * 2.13) * 0.32;
-			const offset = env * amp * wave;
-			pts.push({
-				x: sx + (ex - sx) * t + nx * offset,
-				y: sy + (ey - sy) * t + ny * offset
-			});
-		}
-		return pts;
+		return [
+			{ x: a.x + tx * startPad, y: a.y + ty * startPad },
+			{ x: b.x - tx * endPad, y: b.y - ty * endPad }
+		];
 	}
 
 	private hitTestLink(wx: number, wy: number): number {
@@ -1137,14 +1167,31 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 		);
 	}
 
-	private startLoop(): void {
+private startLoop(): void {
 		this.lastTime = performance.now();
 		const tick = (now: number) => {
-			const dt = Math.min(0.033, (now - this.lastTime) / 1000);
+			this.rafId = requestAnimationFrame(tick);
+			if (this.paused || document.hidden || !document.hasFocus() || this.host.offsetParent === null) {
+				this.lastTime = now;
+				return;
+			}
+
+			const isActive =
+				this.dragMode !== "none" ||
+				this.hoveredNode !== null ||
+				Math.abs(this.targetCamZoom - this.camZoom) > 0.002 ||
+				Math.abs(this.targetCamX - this.camX) > 0.2 ||
+				Math.abs(this.targetCamY - this.camY) > 0.2;
+
+			if (!isActive && now - this.lastRenderTime < 32) {
+				return;
+			}
+
+			const dt = Math.min(0.033, Math.max(0.001, (now - this.lastTime) / 1000));
 			this.lastTime = now;
+			this.lastRenderTime = now;
 			this.stepPhysics(now / 1000, dt);
 			this.render();
-			this.rafId = requestAnimationFrame(tick);
 		};
 		this.rafId = requestAnimationFrame(tick);
 	}
@@ -1156,229 +1203,37 @@ private stepPhysics(timeSec: number, dt: number): void {
 		this.camY += (this.targetCamY - this.camY) * camLerp;
 		this.camZoom += (this.targetCamZoom - this.camZoom) * camLerp;
 
-		const nodeMap = new Map(this.nodes.map((n) => [n.id, n]));
-
-		// 1. Пружина к опорной точке + мягкое парение
+		// 1. Спокойный возврат к опорной точке (без парения)
+		const posLerp = 1 - Math.pow(0.0005, dt);
 		for (const n of this.nodes) {
 			if (n === this.draggedNode || this.draggedCluster?.nodes.includes(n)) continue;
-
-			const floatX = Math.cos(timeSec * 0.82 + n.phase) * 5.5;
-			const floatY = Math.sin(timeSec * 0.68 + n.phase * 1.3) * 5.5;
-
-			const targetX = n.anchorX + floatX;
-			const targetY = n.anchorY + floatY;
-
-			const ax = (targetX - n.x) * 6.5;
-			const ay = (targetY - n.y) * 6.5;
-
-			n.vx = (n.vx + ax * dt) * 0.85;
-			n.vy = (n.vy + ay * dt) * 0.85;
-
-			n.x += n.vx * dt;
-			n.y += n.vy * dt;
+			n.x += (n.anchorX - n.x) * posLerp;
+			n.y += (n.anchorY - n.y) * posLerp;
+			n.vx = 0;
+			n.vy = 0;
 		}
 
-		// 2. Эластичные связи между сцепленными пузырями (держат оптимальную дистанцию)
-		for (const l of this.links) {
-			const a = nodeMap.get(l.from);
-			const b = nodeMap.get(l.to);
-			if (!a || !b) continue;
-
-			const dx = b.x - a.x;
-			const dy = b.y - a.y;
-			const dist = Math.hypot(dx, dy) || 0.001;
-			const idealDist = a.radius + b.radius + 36;
-
-			if (dist > idealDist) {
-				const pull = (dist - idealDist) * 1.8 * dt;
-				const nx = dx / dist;
-				const ny = dy / dist;
-
-				if (a !== this.draggedNode) {
-					a.anchorX += nx * pull * 0.35;
-					a.anchorY += ny * pull * 0.35;
-				}
-				if (b !== this.draggedNode) {
-					b.anchorX -= nx * pull * 0.35;
-					b.anchorY -= ny * pull * 0.35;
-				}
-			}
-		}
-
-// Сбрасываем целевые деформации и свечение наложения перед расчётом контактов
-		const targetDeforms = new Map<BubbleNode, Float32Array>();
-		for (const n of this.nodes) {
-			n.overlapGlow *= 0.85;
-			if (n.kind !== "note") {
-				targetDeforms.set(n, new Float32Array(JELLY_SEGMENTS));
-			}
-		}
-
-		// 3. Желейное взаимодействие: мягкое сплющивание, отталкивание и прохождение насквозь при сильном пуше
+		// 2. Мягкое раздвигание при наложении (без желейных деформаций)
 		for (let i = 0; i < this.nodes.length; i++) {
 			const a = this.nodes[i];
 			if (!a) continue;
 			for (let j = i + 1; j < this.nodes.length; j++) {
 				const b = this.nodes[j];
 				if (!b) continue;
+				if (a === this.draggedNode || b === this.draggedNode) continue;
 
 				const dx = b.x - a.x;
 				const dy = b.y - a.y;
 				const dist = Math.hypot(dx, dy) || 0.001;
-				const touchDist = a.radius + b.radius + 12;
-
-				if (dist < touchDist) {
-					const penetration = touchDist - dist;
+				const minDist = a.radius + b.radius + 16;
+				if (dist < minDist) {
+					const push = (minDist - dist) * 0.12;
 					const nx = dx / dist;
 					const ny = dy / dist;
-
-					// Порог прохождения насквозь: если сильно запушить (проникновение > 48% от суммы радиусов)
-					const tunnelThreshold = (a.radius + b.radius) * 0.48;
-					const isTunneling =
-						penetration > tunnelThreshold && (a === this.draggedNode || b === this.draggedNode);
-
-					if (isTunneling) {
-						// При прохождении насквозь отталкивание ослабевает, а полупрозрачное свечение усиливается
-						const passRatio = Math.min(1, (penetration - tunnelThreshold) / (tunnelThreshold * 0.7));
-						a.overlapGlow = Math.max(a.overlapGlow, 0.35 + passRatio * 0.65);
-						b.overlapGlow = Math.max(b.overlapGlow, 0.35 + passRatio * 0.65);
-
-						const softPush = penetration * 0.06 * (1 - passRatio * 0.85);
-						if (a !== this.draggedNode) {
-							a.x -= nx * softPush;
-							a.y -= ny * softPush;
-						}
-						if (b !== this.draggedNode) {
-							b.x += nx * softPush;
-							b.y += ny * softPush;
-						}
-					} else {
-						// Обычное мягкое касание: упругое раздвигание + деформация оболочки
-						const push = penetration * 0.24;
-						if (a !== this.draggedNode) {
-							a.x -= nx * push;
-							a.y -= ny * push;
-						}
-						if (b !== this.draggedNode) {
-							b.x += nx * push;
-							b.y += ny * push;
-						}
-						if (penetration > 14) {
-							const glow = Math.min(0.45, (penetration - 14) / 45);
-							a.overlapGlow = Math.max(a.overlapGlow, glow);
-							b.overlapGlow = Math.max(b.overlapGlow, glow);
-						}
-					}
-
-					// Вычисляем желейное сплющивание оболочек (вмятина по нормали + выпирание по бокам)
-					const angleAB = Math.atan2(dy, dx);
-					const angleBA = angleAB + Math.PI;
-					const squishStrength = Math.min(18, penetration * 0.42);
-
-					this.applyJellyDent(targetDeforms.get(a), angleAB, squishStrength);
-					this.applyJellyDent(targetDeforms.get(b), angleBA, squishStrength);
-				}
-			}
-		}
-
-		// 4. Пружинная симуляция вершин желе (с перетеканием и остаточной вибрацией)
-		for (const n of this.nodes) {
-			if (n.kind === "note") continue;
-			const target = targetDeforms.get(n)!;
-			const speedMag = Math.hypot(n.vx, n.vy);
-			const moveAngle = Math.atan2(n.vy, n.vx);
-
-			for (let k = 0; k < JELLY_SEGMENTS; k++) {
-				const theta = (k / JELLY_SEGMENTS) * Math.PI * 2;
-				// Лёгкая инерционная вытянутость при быстром перетаскивании + живая волна по контуру
-				const dragStretch =
-					n === this.draggedNode ? 0 : Math.cos(theta - moveAngle) * Math.min(6, speedMag * 0.018);
-				const organicRipple =
-					Math.sin(timeSec * 2.4 + n.phase + k * 0.78) * 1.45 +
-					Math.cos(timeSec * 1.7 - n.phase + k * 1.3) * 0.9;
-
-				const desiredOffset = (target[k] ?? 0) + dragStretch + organicRipple;
-				const currentOffset = n.radialOffsets[k] ?? 0;
-				const currentVel = n.radialVels[k] ?? 0;
-
-				// Закон Гука + вязкое затухание
-				const force = (desiredOffset - currentOffset) * 58;
-				const nextVel = (currentVel + force * dt) * 0.84;
-				n.radialVels[k] = nextVel;
-				n.radialOffsets[k] = currentOffset + nextVel * dt;
-			}
-		}
-
-// 4. Обновление органической пузырчатой оболочки смысловых блоков
-		for (const c of this.clusters) {
-			if (c.nodes.length === 0) continue;
-
-			let sumX = 0;
-			let sumY = 0;
-			for (const m of c.nodes) {
-				sumX += m.x;
-				sumY += m.y;
-			}
-			const targetCx = sumX / c.nodes.length;
-			const targetCy = sumY / c.nodes.length;
-			const isFirstFrame = (c.radii[0] ?? 0) <= 1;
-
-			if (isFirstFrame) {
-				c.cx = targetCx;
-				c.cy = targetCy;
-			} else {
-				const centerLerp = 1 - Math.pow(0.002, dt);
-				c.cx += (targetCx - c.cx) * centerLerp;
-				c.cy += (targetCy - c.cy) * centerLerp;
-			}
-
-			// Вычисляем полярную огибающую вокруг центра кластера
-			const rawTargets = new Float32Array(CLUSTER_SEGMENTS);
-			for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
-				const theta = (k / CLUSTER_SEGMENTS) * Math.PI * 2;
-				const ux = Math.cos(theta);
-				const uy = Math.sin(theta);
-
-				let maxExtent = 64;
-				for (const m of c.nodes) {
-					const dx = m.x - c.cx;
-					const dy = m.y - c.cy;
-					const memberPad = m.kind === "note" ? 116 : m.radius + 32;
-					const extent = dx * ux + dy * uy + memberPad;
-					if (extent > maxExtent) maxExtent = extent;
-				}
-
-				const wave =
-					Math.sin(timeSec * 1.45 + c.phase + k * 0.52) * 4.2 +
-					Math.cos(timeSec * 0.95 - c.phase + k * 0.87) * 2.8;
-				rawTargets[k] = maxExtent + wave;
-			}
-
-			// Двухпроходное круговое сглаживание, чтобы оболочка плавно расплывалась
-			const smoothTargets = new Float32Array(CLUSTER_SEGMENTS);
-			for (let pass = 0; pass < 2; pass++) {
-				const src = pass === 0 ? rawTargets : smoothTargets;
-				const dst = pass === 0 ? smoothTargets : rawTargets;
-				for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
-					const prev = src[(k - 1 + CLUSTER_SEGMENTS) % CLUSTER_SEGMENTS] ?? 0;
-					const curr = src[k] ?? 0;
-					const next = src[(k + 1) % CLUSTER_SEGMENTS] ?? 0;
-					dst[k] = prev * 0.25 + curr * 0.5 + next * 0.25;
-				}
-			}
-
-			for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
-				const targetR = rawTargets[k] ?? 64;
-				if (isFirstFrame) {
-					c.radii[k] = targetR;
-					c.radialVels[k] = 0;
-				} else {
-					const curR = c.radii[k] ?? targetR;
-					const curV = c.radialVels[k] ?? 0;
-					const force = (targetR - curR) * 42;
-					const nextV = (curV + force * dt) * 0.82;
-					c.radialVels[k] = nextV;
-					c.radii[k] = curR + nextV * dt;
+					a.x -= nx * push;
+					a.y -= ny * push;
+					b.x += nx * push;
+					b.y += ny * push;
 				}
 			}
 		}
@@ -1417,90 +1272,76 @@ private stepPhysics(timeSec: number, dt: number): void {
 		this.syncOverlayBadges();
 	}
 
-	private drawGrid(ctx: CanvasRenderingContext2D): void {
+private drawGrid(ctx: CanvasRenderingContext2D): void {
 		const step = 44 * this.camZoom;
 		if (step < 12) return;
 
-		const offsetX = ((-this.camX * this.camZoom + this.width / 2) % step + step) % step;
-		const offsetY = ((-this.camY * this.camZoom + this.height / 2) % step + step) % step;
-
-		ctx.fillStyle = "rgba(155, 160, 180, 0.13)";
-		for (let x = offsetX; x < this.width; x += step) {
-			for (let y = offsetY; y < this.height; y += step) {
-				ctx.beginPath();
-				ctx.arc(x, y, 1.25, 0, Math.PI * 2);
-				ctx.fill();
+		const tileStep = Math.max(12, Math.round(step));
+		if (!this.gridPattern || Math.abs(tileStep - this.gridPatternStep) >= 1) {
+			const tile = document.createElement("canvas");
+			tile.width = tileStep;
+			tile.height = tileStep;
+			const tCtx = tile.getContext("2d");
+			if (tCtx) {
+				tCtx.fillStyle = "rgba(155, 160, 180, 0.14)";
+				tCtx.beginPath();
+				tCtx.arc(1.5, 1.5, 1.2, 0, Math.PI * 2);
+				tCtx.fill();
+				this.gridPattern = ctx.createPattern(tile, "repeat");
+				this.gridPatternStep = tileStep;
 			}
 		}
+
+		if (!this.gridPattern) return;
+		const offsetX = ((-this.camX * this.camZoom + this.width / 2) % tileStep + tileStep) % tileStep;
+		const offsetY = ((-this.camY * this.camZoom + this.height / 2) % tileStep + tileStep) % tileStep;
+
+		ctx.save();
+		ctx.translate(offsetX - 1.5, offsetY - 1.5);
+		ctx.fillStyle = this.gridPattern;
+		ctx.fillRect(-tileStep, -tileStep, this.width + tileStep * 2, this.height + tileStep * 2);
+		ctx.restore();
 	}
 
 private drawClusterBox(ctx: CanvasRenderingContext2D, cluster: ClusterGroup): void {
 		if (cluster.nodes.length === 0) return;
 
-		const ptsX = new Float32Array(CLUSTER_SEGMENTS);
-		const ptsY = new Float32Array(CLUSTER_SEGMENTS);
-		let maxR = 0;
-		let topY = Infinity;
-
-		for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
-			const theta = (k / CLUSTER_SEGMENTS) * Math.PI * 2;
-			const r = Math.max(48, cluster.radii[k] ?? 64);
-			if (r > maxR) maxR = r;
-			const px = cluster.cx + Math.cos(theta) * r;
-			const py = cluster.cy + Math.sin(theta) * r;
-			ptsX[k] = px;
-			ptsY[k] = py;
-			if (py < topY) topY = py;
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const m of cluster.nodes) {
+			const rx = m.kind === "note" ? 132 : m.radius + 12;
+			const ry = m.kind === "note" ? (this.noteHalfHeights.get(m.id) ?? 28) + 12 : m.radius + 12;
+			if (m.x - rx < minX) minX = m.x - rx;
+			if (m.y - ry < minY) minY = m.y - ry;
+			if (m.x + rx > maxX) maxX = m.x + rx;
+			if (m.y + ry > maxY) maxY = m.y + ry;
 		}
+
+		const pad = 22;
+		const bx = minX - pad;
+		const by = minY - pad - 6;
+		const bw = maxX - minX + pad * 2;
+		const bh = maxY - minY + pad * 2 + 6;
+		const cx = bx + bw / 2;
 
 		ctx.save();
 		ctx.beginPath();
-		const lastX = ptsX[CLUSTER_SEGMENTS - 1]!;
-		const lastY = ptsY[CLUSTER_SEGMENTS - 1]!;
-		const firstX = ptsX[0]!;
-		const firstY = ptsY[0]!;
-		ctx.moveTo((lastX + firstX) * 0.5, (lastY + firstY) * 0.5);
-
-		for (let k = 0; k < CLUSTER_SEGMENTS; k++) {
-			const nextIdx = (k + 1) % CLUSTER_SEGMENTS;
-			const cx = ptsX[k]!;
-			const cy = ptsY[k]!;
-			const nx = ptsX[nextIdx]!;
-			const ny = ptsY[nextIdx]!;
-			ctx.quadraticCurveTo(cx, cy, (cx + nx) * 0.5, (cy + ny) * 0.5);
-		}
-		ctx.closePath();
-
-		// Полупрозрачное мыльно-стеклянное наполнение внешнего пузыря
-		const grad = ctx.createRadialGradient(
-			cluster.cx - maxR * 0.22,
-			cluster.cy - maxR * 0.24,
-			maxR * 0.08,
-			cluster.cx,
-			cluster.cy,
-			maxR * 1.05
-		);
-		grad.addColorStop(0, this.hexToRgba(cluster.color, 0.09));
-		grad.addColorStop(0.7, this.hexToRgba(cluster.color, 0.03));
-		grad.addColorStop(1, this.hexToRgba(cluster.color, 0.14));
-		ctx.fillStyle = grad;
+		ctx.roundRect(bx, by, bw, bh, 18);
+		ctx.globalAlpha = 0.45;
+		ctx.fillStyle = this.themeColors.surface;
 		ctx.fill();
-
-		// Мягкое внешнее свечение мембраны + чёткий контур
-		ctx.lineWidth = 6;
-		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.08);
+		ctx.globalAlpha = 1;
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = this.themeColors.border;
 		ctx.stroke();
 
-		ctx.lineWidth = 1.6;
-		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.45);
-		ctx.stroke();
-
-		// Плашка-заголовок блока по верхнему краю пузыря
-		ctx.font = `700 12px ${this.uiFontFamily}`;
-		const labelW = Math.max(78, ctx.measureText(cluster.title).width + 24);
+		ctx.font = `600 12px ${this.uiFontFamily}`;
+		const labelW = Math.max(76, ctx.measureText(cluster.title).width + 24);
 		const labelH = 24;
-		const hx = cluster.cx - labelW / 2;
-		const hy = topY - labelH / 2;
+		const hx = cx - labelW / 2;
+		const hy = by - labelH / 2;
 
 		cluster.headerX = hx;
 		cluster.headerY = hy;
@@ -1508,17 +1349,17 @@ private drawClusterBox(ctx: CanvasRenderingContext2D, cluster: ClusterGroup): vo
 		cluster.headerH = labelH;
 
 		ctx.beginPath();
-		ctx.roundRect(hx, hy, labelW, labelH, 999);
-		ctx.fillStyle = "rgba(22, 24, 33, 0.92)";
+		ctx.roundRect(hx, hy, labelW, labelH, 12);
+		ctx.fillStyle = this.themeColors.surface;
 		ctx.fill();
-		ctx.lineWidth = 1.25;
-		ctx.strokeStyle = this.hexToRgba(cluster.color, 0.65);
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = this.themeColors.borderStrong;
 		ctx.stroke();
 
-		ctx.fillStyle = "#eceff4";
+		ctx.fillStyle = this.themeColors.textNormal;
 		ctx.textAlign = "center";
 		ctx.textBaseline = "middle";
-		ctx.fillText(cluster.title, cluster.cx, hy + labelH / 2);
+		ctx.fillText(cluster.title, cx, hy + labelH / 2);
 		ctx.restore();
 	}
 
@@ -1541,61 +1382,29 @@ private drawLinks(ctx: CanvasRenderingContext2D): void {
 
 			ctx.save();
 			ctx.lineCap = "round";
-			ctx.lineJoin = "round";
-
 			ctx.beginPath();
 			ctx.moveTo(first.x, first.y);
-			for (let p = 1; p < pts.length - 1; p++) {
-				const curr = pts[p]!;
-				const next = pts[p + 1]!;
-				ctx.quadraticCurveTo(curr.x, curr.y, (curr.x + next.x) * 0.5, (curr.y + next.y) * 0.5);
-			}
 			ctx.lineTo(last.x, last.y);
 
 			if (isHovered) {
-				ctx.lineWidth = 6.5;
-				ctx.strokeStyle = "rgba(216, 91, 87, 0.22)";
-				ctx.stroke();
-
-				ctx.lineWidth = 3;
-				ctx.strokeStyle = "#d85b57";
-				ctx.stroke();
+				ctx.lineWidth = 2.5;
+				ctx.strokeStyle = this.themeColors.red;
 			} else {
-				const grad = ctx.createLinearGradient(first.x, first.y, last.x, last.y);
-				grad.addColorStop(0, this.hexToRgba(a.color, 0.68));
-				grad.addColorStop(1, this.hexToRgba(b.color, 0.68));
-
-				ctx.lineWidth = 5;
-				ctx.strokeStyle = this.hexToRgba(a.color, 0.14);
-				ctx.stroke();
-
-				ctx.lineWidth = 2.1;
-				ctx.strokeStyle = grad;
-				ctx.stroke();
+				ctx.lineWidth = 1.4;
+				ctx.strokeStyle = this.themeColors.borderStrong;
 			}
+			ctx.stroke();
 			ctx.restore();
 		}
 
-		// Активная волнистая линия при протягивании новой связи
 		if (this.dragMode === "link" && this.linkSourceNode) {
-			const sx = this.linkSourceNode.x;
-			const sy = this.linkSourceNode.y;
-			const ex = this.linkPointerWorld.x;
-			const ey = this.linkPointerWorld.y;
-			const mx = (sx + ex) * 0.5;
-			const my = (sy + ey) * 0.5;
-			const dx = ex - sx;
-			const dy = ey - sy;
-			const dist = Math.hypot(dx, dy) || 1;
-			const wave = Math.sin(this.animTimeSec * 4) * Math.min(20, dist * 0.12);
-
 			ctx.save();
 			ctx.beginPath();
-			ctx.moveTo(sx, sy);
-			ctx.quadraticCurveTo(mx - (dy / dist) * wave, my + (dx / dist) * wave, ex, ey);
-			ctx.setLineDash([6, 5]);
-			ctx.lineWidth = 2.2;
-			ctx.strokeStyle = "#9c83e8";
+			ctx.moveTo(this.linkSourceNode.x, this.linkSourceNode.y);
+			ctx.lineTo(this.linkPointerWorld.x, this.linkPointerWorld.y);
+			ctx.setLineDash([5, 5]);
+			ctx.lineWidth = 1.6;
+			ctx.strokeStyle = this.themeColors.accent;
 			ctx.stroke();
 			ctx.restore();
 		}
@@ -1652,55 +1461,34 @@ private drawBubble(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
 		const isPendingSource = this.pendingLinkFromId === node.id;
 		const isDropCatch = this.dropHoverBubble === node;
 		const isHover = this.hoveredNode === node || this.draggedNode === node || isPendingSource || isDropCatch;
-		const scale = isDropCatch ? 1.09 : isHover ? 1.035 : 1;
-		const r = node.radius * scale;
-		const glow = isDropCatch ? 0.65 : node.overlapGlow;
+		const r = node.radius * (isDropCatch ? 1.04 : 1);
 
 		ctx.save();
-
-		// При прохождении пузырей друг сквозь друга включаем мягкое световое смешивание
-		if (glow > 0.15) {
-			ctx.globalCompositeOperation = "screen";
-		}
-
-		const grad = ctx.createRadialGradient(
-			node.x - r * 0.28,
-			node.y - r * 0.28,
-			r * 0.08,
-			node.x,
-			node.y,
-			r * 1.15
-		);
-		const innerAlpha = Math.min(0.55, (isHover ? 0.34 : 0.22) + glow * 0.24);
-		const outerAlpha = Math.min(0.32, (isHover ? 0.15 : 0.08) + glow * 0.16);
-		grad.addColorStop(0, this.hexToRgba(node.color, innerAlpha));
-		grad.addColorStop(0.75, this.hexToRgba(node.color, outerAlpha));
-		grad.addColorStop(1, this.hexToRgba(node.color, outerAlpha * 1.35));
-
-		this.traceJellyPath(ctx, node, scale);
-		ctx.fillStyle = grad;
+		ctx.beginPath();
+		ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+		ctx.fillStyle = isHover ? this.themeColors.surfaceHover : this.themeColors.surface;
 		ctx.fill();
 
-ctx.lineWidth = isDropCatch ? 3.2 : isPendingSource ? 3 : isHover ? 2.2 : 1.5;
+		ctx.lineWidth = isDropCatch ? 2.2 : isPendingSource ? 2 : isHover ? 1.5 : 1;
 		ctx.strokeStyle = isDropCatch
-			? "#4aab80"
+			? this.themeColors.green
 			: isPendingSource
-			? "#ffffff"
-			: this.hexToRgba(node.color, Math.min(1, (isHover ? 0.95 : 0.62) + glow * 0.3));
+			? this.themeColors.accent
+			: isHover
+			? this.themeColors.borderStrong
+			: this.themeColors.border;
 		ctx.stroke();
-
 		ctx.restore();
 
-// Индикатор приёма карточки при наведении заметки на пузырь
 		if (isDropCatch) {
 			ctx.save();
-			const pillText = "📥 Переместить сюда";
-			ctx.font = `700 11px ${this.uiFontFamily}`;
+			const pillText = "Переместить сюда";
+			ctx.font = `600 11px ${this.uiFontFamily}`;
 			const pw = ctx.measureText(pillText).width + 16;
 			const py = node.y - r - 18;
 			ctx.beginPath();
-			ctx.roundRect(node.x - pw / 2, py - 10, pw, 20, 999);
-			ctx.fillStyle = "#4aab80";
+			ctx.roundRect(node.x - pw / 2, py - 10, pw, 20, 10);
+			ctx.fillStyle = this.themeColors.green;
 			ctx.fill();
 			ctx.fillStyle = "#141619";
 			ctx.textAlign = "center";
@@ -1709,34 +1497,49 @@ ctx.lineWidth = isDropCatch ? 3.2 : isPendingSource ? 3 : isHover ? 2.2 : 1.5;
 			ctx.restore();
 		}
 
-const hasGlyph = this.drawBubbleGlyph(ctx, node, r, isHover);
+		const hasGlyph = this.drawBubbleGlyph(ctx, node, r, isHover);
 
-		// Крупное чистое название по центру пузыря с автоподбором кегля под длинные слова
-		const fullTitle = node.label;
-		const maxTextW = r * 1.66;
-		let fontSize = node.kind === "program"
-			? Math.max(18, Math.min(24, Math.round(r * 0.34)))
-			: Math.max(15.5, Math.min(21, Math.round(r * 0.31)));
+		let layout = this.bubbleTextCache.get(node.id);
+		if (!layout) {
+			const maxTextW = node.radius * 1.62;
+			let fontSize = node.kind === "program"
+				? Math.max(15, Math.min(20, Math.round(node.radius * 0.29)))
+				: Math.max(13.5, Math.min(18, Math.round(node.radius * 0.27)));
 
-		const words = fullTitle.split(/\s+/).filter(Boolean);
-		while (fontSize > 12.5) {
-			ctx.font = `700 ${fontSize}px ${this.uiFontFamily}`;
-			const widestWord = words.reduce((max, w) => Math.max(max, ctx.measureText(w).width), 0);
-			if (widestWord <= maxTextW) break;
-			fontSize -= 0.75;
+			const words = node.label.split(/\s+/).filter(Boolean);
+			while (fontSize > 11.5) {
+				ctx.font = `600 ${fontSize}px ${this.uiFontFamily}`;
+				const widestWord = words.reduce((max, w) => Math.max(max, ctx.measureText(w).width), 0);
+				if (widestWord <= maxTextW) break;
+				fontSize -= 0.75;
+			}
+			ctx.font = `600 ${fontSize}px ${this.uiFontFamily}`;
+			const rawLines = this.wrapLines(ctx, node.label, maxTextW);
+			const visible = rawLines.slice(0, 3);
+			if (rawLines.length > 3 && visible[2]) {
+				visible[2] = this.clipText(ctx, visible[2], maxTextW);
+			}
+			layout = { fontSize, lines: visible, lineHeight: fontSize + 4 };
+			this.bubbleTextCache.set(node.id, layout);
 		}
 
-		const textCenterY = hasGlyph ? node.y + Math.round(r * 0.14) : node.y;
+		const textCenterY = hasGlyph ? node.y + Math.round(r * 0.1) : node.y - (node.subLabel ? 5 : 0);
+		const startY = textCenterY - ((layout.lines.length - 1) * layout.lineHeight) / 2;
 
 		ctx.save();
 		ctx.textAlign = "center";
 		ctx.textBaseline = "middle";
-		ctx.fillStyle = "#f4f6fb";
-		ctx.font = `700 ${fontSize}px ${this.uiFontFamily}`;
-		ctx.shadowColor = "rgba(10, 12, 18, 0.75)";
-		ctx.shadowBlur = 8;
-		ctx.shadowOffsetY = 1;
-		this.drawWrappedText(ctx, fullTitle, node.x, textCenterY, maxTextW, fontSize + 5, 3);
+		ctx.font = `600 ${layout.fontSize}px ${this.uiFontFamily}`;
+		ctx.fillStyle = this.themeColors.textNormal;
+		for (let i = 0; i < layout.lines.length; i++) {
+			ctx.fillText(layout.lines[i]!, node.x, startY + i * layout.lineHeight);
+		}
+
+		if (node.subLabel && layout.lines.length <= 2) {
+			ctx.font = `500 11px ${this.uiFontFamily}`;
+			ctx.fillStyle = this.themeColors.textMuted;
+			ctx.fillText(node.subLabel, node.x, startY + layout.lines.length * layout.lineHeight + 3);
+		}
 		ctx.restore();
 	}
 
@@ -1754,8 +1557,8 @@ const hasGlyph = this.drawBubbleGlyph(ctx, node, r, isHover);
 
 		ctx.save();
 		ctx.translate(gx, gy);
-		ctx.strokeStyle = isHover ? "#f4f6fb" : this.hexToRgba(node.color, 0.92);
-		ctx.fillStyle = isHover ? "#f4f6fb" : this.hexToRgba(node.color, 0.92);
+		ctx.strokeStyle = isHover ? this.themeColors.textNormal : this.themeColors.textMuted;
+		ctx.fillStyle = isHover ? this.themeColors.textNormal : this.themeColors.textMuted;
 		ctx.lineWidth = 1.55;
 		ctx.lineCap = "round";
 		ctx.lineJoin = "round";
@@ -1929,13 +1732,19 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 		const style = node.note ? this.noteStyles[node.note.path] : undefined;
 		const w = 248;
 		const lineHeight = 17;
-		const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
+const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 
 		ctx.save();
 		ctx.font = `600 13.5px ${this.uiFontFamily}`;
-		const lines = this.wrapLines(ctx, node.label, maxTextW);
-		const h = Math.max(52, lines.length * lineHeight + 20);
-		this.noteHalfHeights.set(node.id, h / 2);
+		let cardLayout = this.cardLayoutCache.get(node.id);
+		if (!cardLayout) {
+			const lines = this.wrapLines(ctx, node.label, maxTextW);
+			const h = Math.max(52, lines.length * lineHeight + 20);
+			cardLayout = { lines, h };
+			this.cardLayoutCache.set(node.id, cardLayout);
+			this.noteHalfHeights.set(node.id, h / 2);
+		}
+		const { lines, h } = cardLayout;
 
 		const x = node.x - w / 2;
 		const y = node.y - h / 2;
@@ -1943,11 +1752,11 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 
 		ctx.beginPath();
 		ctx.roundRect(x, y, w, h, rad);
-		ctx.fillStyle = isHover ? "rgba(42, 45, 58, 0.97)" : "rgba(30, 32, 42, 0.93)";
+		ctx.fillStyle = isHover ? this.themeColors.surfaceHover : this.themeColors.surface;
 		ctx.fill();
 
-		ctx.lineWidth = isHover ? 1.8 : 1.2;
-		ctx.strokeStyle = isHover ? node.color : this.hexToRgba(node.color, style?.color ? 0.55 : 0.28);
+		ctx.lineWidth = isHover ? 1.4 : 1;
+		ctx.strokeStyle = isHover ? this.themeColors.borderStrong : this.themeColors.border;
 		ctx.stroke();
 
 		// Скруглённый бейдж иконки слева (32x32)
@@ -1956,18 +1765,18 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 		const iy = node.y - iconSize / 2;
 
 		ctx.beginPath();
-		ctx.roundRect(ix, iy, iconSize, iconSize, 9);
-		ctx.fillStyle = this.hexToRgba(node.color, 0.16);
+		ctx.roundRect(ix, iy, iconSize, iconSize, 8);
+		ctx.fillStyle = this.themeColors.surfaceAlt;
 		ctx.fill();
-		ctx.lineWidth = 1.1;
-		ctx.strokeStyle = this.hexToRgba(node.color, 0.45);
+		ctx.lineWidth = 0.8;
+		ctx.strokeStyle = this.themeColors.border;
 		ctx.stroke();
 
 		const iconImg = style?.iconImage ? this.getCachedIconImage(style.iconImage) : null;
 		if (iconImg && iconImg.complete && iconImg.naturalWidth > 0) {
 			ctx.save();
 			ctx.beginPath();
-			ctx.roundRect(ix + 1, iy + 1, iconSize - 2, iconSize - 2, 8);
+			ctx.roundRect(ix + 1, iy + 1, iconSize - 2, iconSize - 2, 7);
 			ctx.clip();
 			const iw = iconImg.naturalWidth;
 			const ih = iconImg.naturalHeight;
@@ -1975,19 +1784,19 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 			ctx.drawImage(iconImg, (iw - side) / 2, (ih - side) / 2, side, side, ix + 1, iy + 1, iconSize - 2, iconSize - 2);
 			ctx.restore();
 		} else if (style?.icon) {
-			ctx.font = `17px ${this.uiFontFamily}`;
+			ctx.font = `16px ${this.uiFontFamily}`;
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
 			ctx.fillText(style.icon, ix + iconSize / 2, node.y + 1);
 		} else {
 			ctx.beginPath();
-			ctx.arc(ix + iconSize / 2, node.y, 4.2, 0, Math.PI * 2);
-			ctx.fillStyle = node.color;
+			ctx.arc(ix + iconSize / 2, node.y, 3.5, 0, Math.PI * 2);
+			ctx.fillStyle = style?.color || this.themeColors.textMuted;
 			ctx.fill();
 		}
 
-		ctx.font = `600 13.5px ${this.uiFontFamily}`;
-		ctx.fillStyle = "#f4f6fb";
+		ctx.font = `500 13.5px ${this.uiFontFamily}`;
+		ctx.fillStyle = this.themeColors.textNormal;
 		ctx.textAlign = "left";
 		ctx.textBaseline = "middle";
 
@@ -1998,12 +1807,17 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 		ctx.restore();
 	}
 
-	private syncOverlayBadges(): void {
+private syncOverlayBadges(): void {
+		const scaleStr = this.camZoom.toFixed(2);
 		for (const node of this.nodes) {
 			const badge = this.actionBadges.get(node.id);
 			if (!badge) continue;
 			const screen = this.worldToScreen(node.x + 104, node.y);
-			badge.style.transform = `translate3d(${Math.round(screen.x - 11)}px, ${Math.round(screen.y - 11)}px, 0) scale(${this.camZoom.toFixed(2)})`;
+			const nextTransform = `translate3d(${Math.round(screen.x - 11)}px, ${Math.round(screen.y - 11)}px, 0) scale(${scaleStr})`;
+			if (this.lastBadgeTransforms.get(node.id) !== nextTransform) {
+				badge.style.transform = nextTransform;
+				this.lastBadgeTransforms.set(node.id, nextTransform);
+			}
 		}
 	}
 

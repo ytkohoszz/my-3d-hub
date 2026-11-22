@@ -1,13 +1,13 @@
 {
     "name":  "obsidian-sample-plugin",
-    "version":  "0.3.2",
+    "version":  "0.3.3",
     "description":  "This is a sample plugin for Obsidian (https://obsidian.md)",
     "main":  "main.js",
     "type":  "module",
     "scripts":  {
                     "dev":  "node esbuild.config.mjs",
                     "build":  "node node_modules/typescript/bin/tsc -noEmit -skipLibCheck \u0026\u0026 node esbuild.config.mjs production",
-                    "version":  "node version-bump.mjs \u0026\u0026 git add manifest.json versions.json",
+                    "version":  "0.3.3",
                     "lint":  "eslint ."
                 },
     "keywords":  [

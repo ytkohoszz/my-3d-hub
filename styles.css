@@ -1,3 +1,7 @@
+/* ========================================================= */
+/* 3D SPATIAL HUB — VELOCITY 2.1.0 DESIGN SYSTEM             */
+/* ========================================================= */
+
 .hub3d-root {
 	position: relative;
 	width: 100%;
@@ -6,6 +10,7 @@
 	margin: 0 !important;
 	overflow: hidden !important;
 	background: var(--background-primary);
+	font-family: var(--font-interface);
 	user-select: none;
 	-webkit-user-select: none;
 	touch-action: none;
@@ -33,17 +38,23 @@
 	overflow: hidden;
 }
 
+/* Бейдж инспектора на карточке заметки */
 .hub3d-node-inspect-badge {
+	appearance: none;
+	border: none;
+	outline: none;
+	contain: content;
 	position: absolute;
 	top: 0;
 	left: 0;
-	width: 22px;
-	height: 22px;
+	width: 24px;
+	height: 24px;
 	padding: 0;
-	border-radius: 6px;
-	border: 1px solid rgba(156, 131, 232, 0.55);
-	background: rgba(28, 30, 40, 0.9);
-	color: #bcaaf0;
+	border-radius: var(--radius-xs, 6px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	background: var(--background-secondary);
+	color: var(--icon-color, var(--text-muted));
+	box-shadow: 0 0 0 0.5px var(--trans-faint-25, var(--background-modifier-border));
 	font-size: 12px;
 	line-height: 1;
 	display: flex;
@@ -51,141 +62,161 @@
 	justify-content: center;
 	cursor: pointer;
 	pointer-events: auto;
-	box-shadow: none;
-	transition: background-color 0.12s ease, border-color 0.12s ease;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-node-inspect-badge:hover {
-	background: #9c83e8;
-	color: #141619;
-	border-color: #9c83e8;
+	background: var(--interactive-hover);
+	color: var(--text-normal);
 }
 
+.hub3d-node-inspect-badge:active {
+	filter: opacity(65%);
+}
+
+/* Верхний навигационный остров (Уровень 3 — стекло) */
 .hub3d-top-island {
 	position: absolute;
-	top: 14px;
+	top: calc(14px + var(--safe-area-inset-top, 0px));
 	left: 16px;
 	z-index: 20;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	padding: 5px 12px;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
-	box-shadow: 0 4px 18px rgba(0, 0, 0, 0.24);
+	gap: 4px;
+	padding: 4px 10px;
+	border-radius: var(--radius-xl, 20px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
 }
 
 .hub3d-crumb-btn {
-	height: 24px;
-	padding: 0 8px;
-	border-radius: 999px;
-	border: 1px solid transparent;
-	background: transparent;
-	color: var(--text-muted);
-	font-size: 0.82em;
-	font-weight: 600;
-	cursor: pointer;
+	appearance: none;
+	border: none;
+	outline: none;
 	box-shadow: none;
-	transition: background-color 0.12s ease, color 0.12s ease;
+	contain: content;
+	height: 26px;
+	padding: 0 9px;
+	border-radius: var(--pill-radius, var(--radius-l, 18px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	background: transparent;
+	color: var(--icon-color, var(--text-muted));
+	font-family: var(--font-interface);
+	font-size: 0.82em;
+	font-weight: var(--font-semi-medium, 500);
+	text-box-trim: trim-both;
+	text-box-edge: cap alphabetic;
+	cursor: pointer;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out), transform var(--anim-duration-fast, 150ms) var(--vl-ease-out, cubic-bezier(0.3, 0.75, 0, 1));
 }
 
 .hub3d-crumb-btn:hover {
-	background: var(--background-modifier-hover);
+	background: var(--control-icon-background, var(--background-modifier-hover));
 	color: var(--text-normal);
+}
+
+.hub3d-crumb-btn:active {
+	filter: opacity(65%);
 }
 
 .hub3d-crumb-btn.is-current {
-	color: var(--text-normal);
-	font-weight: 700;
-	background: rgba(156, 131, 232, 0.14);
+	color: var(--color-base-100, var(--text-normal));
+	font-weight: var(--font-semibold, 600);
+	background: var(--trans-faint-10, var(--background-modifier-hover));
+	box-shadow: inset 0 0 0 0.5px var(--trans-faint-25, var(--background-modifier-border));
 }
 
 .hub3d-crumb-btn.is-drop-hover {
-	background: #4aab80 !important;
-	color: #141619 !important;
-	font-weight: 700;
-	transform: scale(1.06);
+	background: var(--color-green, #4aab80) !important;
+	color: var(--text-on-accent, #141619) !important;
+	font-weight: var(--font-semibold, 600);
+	transform: scale(1.05);
 }
 
 .hub3d-back-btn {
-	padding: 0 7px;
+	padding: 0 8px;
 	color: var(--text-normal);
 }
 
 .hub3d-crumb-sep {
 	color: var(--text-faint);
-	font-size: 0.82em;
+	font-size: 0.8em;
 }
 
 .hub3d-crumb-meta {
 	margin-left: 4px;
 	padding-left: 8px;
-	border-left: 1px solid var(--background-modifier-border);
+	border-left: 1px solid var(--trans-faint-20, var(--background-modifier-border));
 	font-size: 0.76em;
 	color: var(--text-muted);
 	font-variant-numeric: tabular-nums;
 }
 
+/* Зона удаления (корзина) */
 .hub3d-trash-zone {
 	position: absolute;
-	bottom: 18px;
+	bottom: calc(18px + var(--safe-area-inset-bottom, 0px));
 	left: 18px;
 	z-index: 25;
 	width: 42px;
 	height: 42px;
-	border-radius: 50%;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 80%, transparent);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
-	color: var(--text-muted);
+	border-radius: var(--radius-xxl, 22px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	color: var(--icon-color, var(--text-muted));
 	font-size: 16px;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-	transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
+	transition: transform var(--anim-duration-fast, 150ms) var(--vl-ease-out, cubic-bezier(0.3, 0.75, 0, 1)), background-color var(--anim-duration-fast, 150ms), color var(--anim-duration-fast, 150ms), border-color var(--anim-duration-fast, 150ms);
 }
 
 .hub3d-trash-zone.is-armed {
-	border-color: rgba(216, 91, 87, 0.65);
-	color: #d85b57;
-	transform: scale(1.08);
+	border-color: color-mix(in oklab, var(--color-red, #d85b57) 60%, transparent);
+	color: var(--color-red, #d85b57);
+	transform: scale(1.06);
 }
 
 .hub3d-trash-zone.is-over {
-	background: #d85b57;
-	border-color: #d85b57;
-	color: #141619;
-	transform: scale(1.22);
-	box-shadow: 0 8px 26px rgba(216, 91, 87, 0.48);
+	background: var(--color-red, #d85b57);
+	border-color: var(--color-red, #d85b57);
+	color: var(--text-on-accent, #ffffff);
+	transform: scale(1.16);
 }
 
+/* Зона выноса за пределы тем (без пунктирной рамки) */
 .hub3d-outside-zone {
 	position: absolute;
-	bottom: 18px;
+	bottom: calc(18px + var(--safe-area-inset-bottom, 0px));
 	right: 18px;
 	z-index: 25;
 	height: 42px;
 	padding: 0 15px;
-	border-radius: 999px;
-	border: 1px dashed rgba(156, 131, 232, 0.55);
-	background: color-mix(in srgb, var(--background-secondary) 84%, transparent);
-	backdrop-filter: blur(12px);
-	-webkit-backdrop-filter: blur(12px);
+	border-radius: var(--radius-xl, 20px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
 	color: var(--text-muted);
 	font-size: 0.8em;
-	font-weight: 650;
+	font-weight: var(--font-semi-medium, 500);
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
 	opacity: 0;
 	pointer-events: none;
 	transform: translateY(8px);
-	transition: opacity 0.16s ease, transform 0.16s ease, background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+	transition: opacity var(--anim-duration-fast, 150ms), transform var(--anim-duration-fast, 150ms) var(--vl-ease-out, cubic-bezier(0.3, 0.75, 0, 1)), background-color var(--anim-duration-fast, 150ms), color var(--anim-duration-fast, 150ms);
 }
 
 .hub3d-outside-zone.is-visible {
@@ -194,84 +225,103 @@
 }
 
 .hub3d-outside-zone.is-over {
-	background: #9c83e8;
-	border-style: solid;
-	border-color: #9c83e8;
-	color: #141619;
-	transform: scale(1.08);
-	box-shadow: 0 8px 26px rgba(156, 131, 232, 0.45);
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	transform: scale(1.06);
 }
 
+/* Нижний док */
 .hub3d-bottom-dock {
 	position: absolute;
-	bottom: 18px;
+	bottom: calc(18px + var(--safe-area-inset-bottom, 0px));
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 25;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	padding: 6px 8px;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.32);
+	gap: 4px;
+	padding: 5px 6px;
+	border-radius: var(--radius-xxl, 22px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.3));
 }
 
 .hub3d-dock-btn {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
+	contain: content;
 	height: 30px;
 	padding: 0 13px;
-	border-radius: 999px;
-	border: 1px solid transparent;
+	border-radius: var(--pill-radius, var(--radius-l, 18px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
 	background: transparent;
 	color: var(--text-normal);
+	font-family: var(--font-interface);
 	font-size: 0.82em;
-	font-weight: 650;
+	font-weight: var(--font-semi-medium, 500);
+	text-box-trim: trim-both;
+	text-box-edge: cap alphabetic;
 	cursor: pointer;
-	box-shadow: none;
 	white-space: nowrap;
-	transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out), filter var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-dock-btn:hover {
-	background: var(--background-modifier-hover);
+	background: var(--control-icon-background, var(--background-modifier-hover));
+}
+
+.hub3d-dock-btn:active {
+	filter: opacity(65%);
 }
 
 .hub3d-dock-btn.is-primary {
-	background: #9c83e8;
-	color: #141619;
-	font-weight: 700;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: var(--font-normal-linux, var(--font-semi-medium, 500));
+	box-shadow: var(--shadow-button, none);
 }
 
 .hub3d-dock-btn.is-primary:hover {
-	background: #ad97f0;
+	background: var(--interactive-accent);
+	filter: brightness(1.0625);
+}
+
+.hub3d-dock-btn.is-primary:active {
+	filter: brightness(1.0625) opacity(70%);
 }
 
 .hub3d-dock-btn.is-active:not(.is-primary) {
-	background: rgba(156, 131, 232, 0.18);
-	border-color: #9c83e8;
-	color: #bcaaf0;
+	background: var(--color-accent-4, var(--background-modifier-active-hover));
+	color: var(--color-accent-1, var(--text-accent));
+	box-shadow: var(--glass-base, none), inset 0 0 0 1px var(--color-accent-3, var(--interactive-accent));
 }
 
+/* Поповер создания темы / папки / заметки */
 .hub3d-dock-popover {
 	position: absolute;
-	bottom: 68px;
+	bottom: calc(68px + var(--safe-area-inset-bottom, 0px));
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 30;
 	width: min(360px, calc(100vw - 32px));
-	padding: 13px 14px;
-	border-radius: 16px;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
-	backdrop-filter: blur(16px);
-	-webkit-backdrop-filter: blur(16px);
-	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
+	padding: 14px;
+	border-radius: var(--menu-radius, var(--radius-ml, 14px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 12px 34px rgba(0, 0, 0, 0.36));
 	display: flex;
 	flex-direction: column;
-	gap: 9px;
+	gap: 10px;
 }
 
 .hub3d-dock-popover.is-hidden {
@@ -279,63 +329,79 @@
 }
 
 .hub3d-pop-header {
-	font-size: 0.86em;
-	font-weight: 750;
-	color: var(--text-normal);
+	font-size: 0.88em;
+	font-weight: var(--font-semibold, 600);
+	font-variation-settings: "opsz" 24;
+	color: var(--color-base-100, var(--text-normal));
 }
 
 .hub3d-pop-sub {
 	font-size: 0.76em;
-	color: var(--text-muted);
+	color: var(--icon-color, var(--text-muted));
 }
 
-.hub3d-pop-input {
+.hub3d-pop-input,
+.hub3d-modal-input {
 	width: 100%;
-	height: 32px;
+	height: 34px;
 	padding: 4px 10px;
-	border-radius: 8px;
-	border: 1px solid var(--background-modifier-border);
+	border: none;
+	outline: none;
+	border-radius: var(--input-radius, var(--radius-s, 8px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
 	background: var(--background-primary);
+	box-shadow: var(--shadow-input, 0 0 0 0.5px var(--trans-faint-30, var(--background-modifier-border)));
 	color: var(--text-normal);
+	font-family: var(--font-interface);
 	font-size: 0.84em;
 	user-select: text;
 	-webkit-user-select: text;
+	transition: box-shadow var(--anim-duration-fast, 150ms);
 }
 
-.hub3d-pop-input:focus {
-	border-color: #9c83e8;
+.hub3d-pop-input:focus,
+.hub3d-modal-input:focus {
+	box-shadow: var(--shadow-input-active, 0 0 0 2.5px var(--interactive-accent));
 	outline: none;
 }
 
 .hub3d-pop-chips {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 5px;
+	gap: 6px;
 }
 
 .hub3d-pop-chip {
-	height: 24px;
-	padding: 0 9px;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
+	appearance: none;
+	border: none;
+	outline: none;
+	contain: content;
+	height: 26px;
+	padding: 0 10px;
+	border-radius: var(--pill-radius, var(--radius-l, 18px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
 	background: var(--background-primary);
-	color: var(--text-muted);
-	font-size: 0.74em;
-	font-weight: 600;
+	box-shadow: var(--shadow-input, 0 0 0 0.5px var(--trans-faint-25, var(--background-modifier-border)));
+	color: var(--icon-color, var(--text-muted));
+	font-family: var(--font-interface);
+	font-size: 0.75em;
+	font-weight: var(--font-semi-medium, 500);
+	text-box-trim: trim-both;
+	text-box-edge: cap alphabetic;
 	cursor: pointer;
-	box-shadow: none;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-pop-chip:hover {
 	color: var(--text-normal);
-	border-color: #9c83e8;
+	background: var(--interactive-hover);
 }
 
 .hub3d-pop-chip.is-selected {
-	background: rgba(156, 131, 232, 0.22);
-	border-color: #9c83e8;
-	color: var(--text-normal);
-	font-weight: 700;
+	background: var(--color-accent-4, var(--background-modifier-active-hover));
+	color: var(--color-accent-1, var(--text-accent));
+	box-shadow: var(--glass-base, none), inset 0 0 0 1px var(--color-accent-3, var(--interactive-accent));
+	font-weight: var(--font-semibold, 600);
 }
 
 .hub3d-pop-actions {
@@ -347,18 +413,16 @@
 }
 
 /* ========================================================= */
-/* ВСТРОЕННЫЙ ИНСПЕКТОР СХЕМ (ISLAND UI + BUBBLE AESTHETIC)  */
+/* ВСТРОЕННЫЙ ИНСПЕКТОР СХЕМ (VELOCITY ISLAND UI)            */
 /* ========================================================= */
 
 .hub3d-insp-overlay {
 	position: absolute;
 	inset: 0;
 	z-index: 60;
-	background:
-		radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--hub3d-accent, #9c83e8) 12%, transparent), transparent 65%),
-		var(--background-primary);
+	background: var(--background-primary);
 	overflow: hidden;
-	animation: hub3d-insp-fade 0.18s ease-out;
+	animation: hub3d-insp-fade 0.16s var(--vl-ease-out, cubic-bezier(0.3, 0.75, 0, 1));
 }
 
 @keyframes hub3d-insp-fade {
@@ -366,33 +430,29 @@
 	to { opacity: 1; }
 }
 
-@keyframes hub3d-insp-float {
-	0%, 100% { transform: translateY(0px); }
-	50% { transform: translateY(-6px); }
-}
-
 .hub3d-insp-top-island {
 	position: absolute;
-	top: 14px;
+	top: calc(14px + var(--safe-area-inset-top, 0px));
 	left: 16px;
 	z-index: 70;
 	display: inline-flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
 	max-width: calc(100vw - 32px);
-	padding: 5px 12px;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 38%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--background-secondary) 80%, transparent);
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+	padding: 4px 10px;
+	border-radius: var(--radius-xl, 20px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
 }
 
 .hub3d-insp-title {
 	font-size: 0.84em;
-	font-weight: 700;
-	color: var(--text-normal);
+	font-weight: var(--font-semibold, 600);
+	color: var(--color-base-100, var(--text-normal));
 	max-width: 280px;
 	white-space: nowrap;
 	overflow: hidden;
@@ -404,7 +464,7 @@
 	align-items: center;
 	gap: 3px;
 	padding-left: 6px;
-	border-left: 1px solid var(--background-modifier-border);
+	border-left: 1px solid var(--trans-faint-20, var(--background-modifier-border));
 }
 
 .hub3d-insp-viewport {
@@ -418,52 +478,23 @@
 	cursor: grabbing;
 }
 
-.hub3d-insp-canvas-layer {
-	position: absolute;
-	top: 0;
-	left: 0;
-	transform-origin: 0 0;
-	will-change: transform;
-}
-
-.hub3d-insp-stage-frame {
-	position: relative;
-	border-radius: 18px;
-	padding: 6px;
-	border: 1.5px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 52%, transparent);
-	background: color-mix(in srgb, var(--hub3d-accent, #9c83e8) 8%, rgba(20, 22, 30, 0.65));
-	box-shadow:
-		0 18px 54px rgba(0, 0, 0, 0.55),
-		0 0 38px color-mix(in srgb, var(--hub3d-accent, #9c83e8) 20%, transparent);
-}
-
-.hub3d-insp-stage-frame.is-floating {
-	animation: hub3d-insp-float 5.5s ease-in-out infinite;
-}
-
-.hub3d-insp-image {
-	display: block;
-	border-radius: 12px;
-	pointer-events: none;
-	user-select: none;
-}
-
 .hub3d-insp-bottom-dock {
 	position: absolute;
-	bottom: 18px;
+	bottom: calc(18px + var(--safe-area-inset-bottom, 0px));
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 70;
 	display: inline-flex;
 	align-items: center;
-	gap: 6px;
-	padding: 6px 8px;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 38%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.34);
+	gap: 4px;
+	padding: 5px 6px;
+	border-radius: var(--radius-xxl, 22px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.3));
 }
 
 .hub3d-insp-empty {
@@ -472,9 +503,9 @@
 	left: 50%;
 	transform: translate(-50%, -50%);
 	padding: 14px 20px;
-	border-radius: 999px;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 86%, transparent);
+	border-radius: var(--radius-ml, 14px);
+	background: var(--trans-faint-05, var(--background-secondary));
+	box-shadow: var(--glass-base-m, none), 0 0 0 0.5px var(--trans-faint-25, var(--background-modifier-border));
 	color: var(--text-muted);
 	font-size: 0.86em;
 }
@@ -492,16 +523,30 @@
 	justify-content: center;
 	width: 32px;
 	padding: 0;
+	border-radius: var(--radius-xxl, 22px);
+	color: var(--control-icon-color, var(--icon-color));
 }
 
 .hub3d-insp-tool-btn svg.svg-icon {
 	width: 16px;
 	height: 16px;
+	transition: transform var(--anim-super-smooth, 75ms ease-out);
+}
+
+.hub3d-insp-tool-btn:active > svg {
+	transform: scale3d(0.8, 0.8, 0.8);
 }
 
 .hub3d-insp-tool-btn:disabled {
 	opacity: 0.32;
 	cursor: default;
+}
+
+.hub3d-insp-dock-sep {
+	width: 1px;
+	height: 18px;
+	background: var(--trans-faint-20, var(--background-modifier-border));
+	margin: 0 2px;
 }
 
 .hub3d-insp-text-overlay,
@@ -520,6 +565,7 @@
 	box-sizing: content-box;
 }
 
+/* Плавающая панель выделения */
 .hub3d-insp-sel-bar {
 	position: absolute;
 	z-index: 75;
@@ -527,12 +573,13 @@
 	align-items: center;
 	gap: 3px;
 	padding: 4px;
-	border-radius: 999px;
-	border: 1px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 38%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--background-secondary) 86%, transparent);
-	backdrop-filter: blur(14px);
-	-webkit-backdrop-filter: blur(14px);
-	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+	border-radius: var(--radius-xxl, 22px);
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 8px 24px rgba(0, 0, 0, 0.3));
 }
 
 .hub3d-insp-sel-bar.is-hidden,
@@ -541,33 +588,37 @@
 }
 
 .hub3d-insp-sel-btn {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
+	contain: content;
 	width: 30px;
 	height: 30px;
 	padding: 0;
-	border-radius: 999px;
-	border: 1px solid transparent;
+	border-radius: var(--radius-xxl, 22px);
 	background: transparent;
-	color: var(--text-muted);
+	color: var(--control-icon-color, var(--icon-color));
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	box-shadow: none;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-insp-sel-btn:hover {
-	background: var(--background-modifier-hover);
+	background: var(--control-icon-background, var(--background-modifier-hover));
 	color: var(--text-normal);
 }
 
 .hub3d-insp-sel-btn.is-active {
-	background: color-mix(in srgb, var(--hub3d-accent, #9c83e8) 22%, transparent);
-	color: var(--text-normal);
+	background: var(--color-accent-4, var(--background-modifier-active-hover));
+	color: var(--color-accent-1, var(--text-accent));
 }
 
 .hub3d-insp-sel-btn.is-danger:hover {
-	color: #e06c75;
-	background: rgba(224, 108, 117, 0.16);
+	color: var(--color-red, #d85b57);
+	background: color-mix(in oklab, var(--color-red, #d85b57) 16%, transparent);
 }
 
 .hub3d-insp-sel-btn svg.svg-icon,
@@ -576,20 +627,22 @@
 	height: 15px;
 }
 
+/* Панель свойств элемента */
 .hub3d-insp-props-panel {
 	position: absolute;
-	top: 60px;
+	top: calc(60px + var(--safe-area-inset-top, 0px));
 	right: 16px;
-	bottom: 72px;
+	bottom: calc(72px + var(--safe-area-inset-bottom, 0px));
 	z-index: 75;
-	width: 224px;
+	width: 228px;
 	padding: 12px;
-	border-radius: 16px;
-	border: 1px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 32%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--background-secondary) 86%, transparent);
-	backdrop-filter: blur(16px);
-	-webkit-backdrop-filter: blur(16px);
-	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
+	border-radius: var(--menu-radius, var(--radius-ml, 14px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 12px 34px rgba(0, 0, 0, 0.36));
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
@@ -605,28 +658,30 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	font-size: 0.8em;
-	font-weight: 700;
-	color: var(--text-normal);
+	font-size: 0.82em;
+	font-weight: var(--font-semibold, 600);
+	color: var(--color-base-100, var(--text-normal));
 }
 
 .hub3d-insp-prop-close {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	width: 24px;
 	height: 24px;
 	padding: 0;
-	border: none;
-	border-radius: 999px;
+	border-radius: var(--radius-xxl, 22px);
 	background: transparent;
-	color: var(--text-muted);
+	color: var(--icon-color, var(--text-muted));
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	box-shadow: none;
 }
 
 .hub3d-insp-prop-close:hover {
-	background: var(--background-modifier-hover);
+	background: var(--control-icon-background, var(--background-modifier-hover));
 	color: var(--text-normal);
 }
 
@@ -638,8 +693,8 @@
 
 .hub3d-insp-prop-lbl {
 	font-size: 0.72em;
-	font-weight: 600;
-	color: var(--text-muted);
+	font-weight: var(--font-semi-medium, 500);
+	color: var(--icon-color, var(--text-muted));
 }
 
 .hub3d-insp-swatch-grid {
@@ -650,6 +705,7 @@
 
 .hub3d-insp-props-panel button.hub3d-insp-swatch,
 .hub3d-insp-props-panel label.hub3d-insp-swatch {
+	appearance: none;
 	position: relative;
 	width: 100%;
 	min-width: 0 !important;
@@ -657,36 +713,34 @@
 	min-height: 0 !important;
 	padding: 0 !important;
 	box-sizing: border-box;
-	border-radius: 7px;
-	border: 1.5px solid rgba(255, 255, 255, 0.2) !important;
-	background: var(--sw-color, #9c83e8) !important;
-	background-color: var(--sw-color, #9c83e8) !important;
+	border-radius: var(--radius-xs, 6px);
+	border: none !important;
+	background: var(--sw-color, var(--interactive-accent)) !important;
+	background-color: var(--sw-color, var(--interactive-accent)) !important;
 	cursor: pointer;
-	box-shadow: none !important;
+	box-shadow: inset 0 0 0 1px var(--trans-faint-30, var(--background-modifier-border)) !important;
 }
 
 .hub3d-insp-props-panel .hub3d-insp-swatch.is-active {
-	border-color: #ffffff !important;
-	box-shadow: 0 0 0 2px var(--hub3d-accent, #9c83e8) !important;
+	box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 3.5px var(--interactive-accent) !important;
 }
 
 .hub3d-insp-props-panel button.hub3d-insp-swatch.is-transparent {
-	background: repeating-conic-gradient(rgba(160, 174, 192, 0.25) 0% 25%, transparent 0% 50%) 50% / 8px 8px !important;
+	background: repeating-conic-gradient(var(--trans-faint-20, rgba(160, 174, 192, 0.25)) 0% 25%, transparent 0% 50%) 50% / 8px 8px !important;
 }
 
 .hub3d-insp-swatch.is-picker {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	border-style: dashed;
 	overflow: hidden;
 }
 
 .hub3d-insp-swatch.is-picker::after {
 	content: "+";
 	font-size: 11px;
-	font-weight: 700;
-	color: #ffffff;
+	font-weight: var(--font-bold, 700);
+	color: var(--text-on-accent, #ffffff);
 	pointer-events: none;
 }
 
@@ -697,41 +751,44 @@
 	cursor: pointer;
 }
 
+/* Сегментные переключатели Velocity */
 .hub3d-insp-seg-grp {
 	display: grid;
 	grid-auto-flow: column;
 	grid-auto-columns: 1fr;
-	gap: 3px;
-	padding: 3px;
-	border-radius: 9px;
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
+	gap: 2px;
+	padding: 2px;
+	border-radius: var(--radius-l, 18px);
+	background: var(--tab-sidebar-container-bg, var(--background-primary));
+	box-shadow: inset 0 0 0 0.5px var(--trans-faint-20, var(--background-modifier-border));
 }
 
 .hub3d-insp-seg-btn {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	height: 26px;
 	padding: 0 4px;
-	border: 1px solid transparent;
-	border-radius: 6px;
+	border-radius: var(--radius-xxl, 22px);
 	background: transparent;
-	color: var(--text-muted);
+	color: var(--icon-color, var(--text-muted));
 	font-size: 0.74em;
-	font-weight: 600;
+	font-weight: var(--font-semi-medium, 500);
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
 	cursor: pointer;
-	box-shadow: none;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-insp-seg-btn:hover {
 	color: var(--text-normal);
-	background: var(--background-modifier-hover);
 }
 
 .hub3d-insp-seg-btn.is-active {
-	background: color-mix(in srgb, var(--hub3d-accent, #9c83e8) 20%, transparent);
-	border-color: var(--hub3d-accent, #9c83e8);
+	background: var(--tab-sidebar-bg, var(--background-secondary));
+	box-shadow: var(--shadow-tab, var(--shadow-s));
 	color: var(--text-normal);
 }
 
@@ -748,7 +805,7 @@
 
 .hub3d-insp-opacity-row input[type="range"] {
 	flex: 1;
-	accent-color: var(--hub3d-accent, #9c83e8);
+	accent-color: var(--interactive-accent);
 	cursor: pointer;
 }
 
@@ -761,27 +818,29 @@
 }
 
 .hub3d-insp-tab-del {
-	color: var(--text-muted);
+	color: var(--icon-color, var(--text-muted));
 }
 
 .hub3d-insp-tab-del:hover {
-	color: #e06c75;
+	color: var(--color-red, #d85b57);
 }
 
+/* Поповер выбора картинки */
 .hub3d-insp-img-popover {
 	position: absolute;
-	bottom: 70px;
+	bottom: calc(70px + var(--safe-area-inset-bottom, 0px));
 	left: 50%;
 	transform: translateX(-50%);
 	z-index: 80;
 	width: min(320px, calc(100vw - 32px));
 	padding: 12px;
-	border-radius: 16px;
-	border: 1px solid color-mix(in srgb, var(--hub3d-accent, #9c83e8) 34%, var(--background-modifier-border));
-	background: color-mix(in srgb, var(--background-secondary) 92%, transparent);
-	backdrop-filter: blur(16px);
-	-webkit-backdrop-filter: blur(16px);
-	box-shadow: 0 12px 34px rgba(0, 0, 0, 0.44);
+	border-radius: var(--menu-radius, var(--radius-ml, 14px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 12px 34px rgba(0, 0, 0, 0.36));
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
@@ -805,55 +864,59 @@
 }
 
 .hub3d-insp-img-row {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	padding: 5px 8px;
-	border-radius: 9px;
-	border: 1px solid transparent;
-	background: rgba(255, 255, 255, 0.03);
+	padding: 6px 8px;
+	border-radius: var(--radius-s, 8px);
+	background: var(--trans-faint-05, transparent);
 	color: var(--text-normal);
 	cursor: pointer;
-	box-shadow: none;
 	text-align: left;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-insp-img-row:hover {
-	background: var(--background-modifier-hover);
-	border-color: var(--hub3d-accent, #9c83e8);
+	background: var(--interactive-hover);
 }
 
 .hub3d-insp-img-thumb {
 	width: 34px;
 	height: 26px;
 	object-fit: cover;
-	border-radius: 5px;
+	border-radius: var(--radius-xs, 6px);
 	flex-shrink: 0;
 }
 
 .hub3d-insp-img-name {
 	font-size: 0.8em;
-	font-weight: 550;
+	font-weight: var(--font-semi-medium, 500);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
+/* Поповер стиля карточки заметки */
 .hub3d-note-style-popover {
 	position: absolute;
 	z-index: 45;
 	width: 248px;
-	padding: 11px 12px;
-	border-radius: 15px;
-	border: 1px solid var(--background-modifier-border);
-	background: color-mix(in srgb, var(--background-secondary) 90%, transparent);
-	backdrop-filter: blur(16px);
-	-webkit-backdrop-filter: blur(16px);
-	box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+	padding: 12px;
+	border-radius: var(--menu-radius, var(--radius-ml, 14px));
+	-electron-corner-smoothing: var(--corner-smoothing, 60%);
+	border: 1px solid var(--menu-border-color, var(--trans-faint-30, var(--background-modifier-border)));
+	background: var(--modal-small-background, var(--background-primary-alt, var(--background-secondary)));
+	backdrop-filter: var(--blur-m, blur(12px));
+	-webkit-backdrop-filter: var(--blur-m, blur(12px));
+	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 12px 32px rgba(0, 0, 0, 0.36));
 	display: flex;
 	flex-direction: column;
-	gap: 9px;
+	gap: 10px;
 }
 
 .hub3d-style-swatches {
@@ -863,6 +926,7 @@
 }
 
 .hub3d-style-swatch {
+	appearance: none;
 	width: 22px;
 	min-width: 0 !important;
 	height: 22px;
@@ -871,14 +935,15 @@
 	justify-self: center;
 	box-sizing: border-box;
 	border-radius: 50%;
-	border: 1.5px solid rgba(255, 255, 255, 0.2);
+	border: none;
+	box-shadow: inset 0 0 0 1px var(--trans-faint-30, var(--background-modifier-border));
 	cursor: pointer;
-	box-shadow: none;
+	transition: transform var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-style-swatch.is-active {
-	border-color: #ffffff;
-	transform: scale(1.12);
+	box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 3.5px var(--interactive-accent);
+	transform: scale(1.1);
 }
 
 .hub3d-style-icons {
@@ -888,23 +953,26 @@
 }
 
 .hub3d-style-icon-btn {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
 	height: 28px;
 	padding: 0;
-	border-radius: 8px;
-	border: 1px solid transparent;
-	background: rgba(255, 255, 255, 0.04);
+	border-radius: var(--radius-s, 8px);
+	background: var(--trans-faint-05, transparent);
 	font-size: 14px;
 	cursor: pointer;
-	box-shadow: none;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out);
 }
 
 .hub3d-style-icon-btn:hover {
-	background: var(--background-modifier-hover);
+	background: var(--interactive-hover);
 }
 
 .hub3d-style-icon-btn.is-active {
-	border-color: #9c83e8;
-	background: rgba(156, 131, 232, 0.2);
+	background: var(--color-accent-4, var(--background-modifier-active-hover));
+	box-shadow: inset 0 0 0 1px var(--color-accent-3, var(--interactive-accent));
 }
 
 .hub3d-style-actions {
@@ -913,176 +981,52 @@
 	justify-content: space-between;
 	gap: 6px;
 }
-.hub3d-insp-stage-inner {
-	position: relative;
+
+/* ========================================================= */
+/* АДАПТАЦИЯ ПОД IPADOS / TOUCH                              */
+/* ========================================================= */
+
+body.is-mobile .hub3d-crumb-btn,
+body.is-tablet .hub3d-crumb-btn {
+	height: 36px;
+	padding: 0 12px;
 }
 
-.hub3d-insp-viewport.is-pan-mode { cursor: grab; }
-.hub3d-insp-viewport.is-select-mode { cursor: default; }
-.hub3d-insp-viewport.is-rect-mode,
-.hub3d-insp-viewport.is-arrow-mode { cursor: crosshair; }
-.hub3d-insp-viewport.is-text-mode { cursor: text; }
-
-.hub3d-insp-dock-sep {
-	width: 1px;
-	height: 18px;
-	background: var(--background-modifier-border);
-	margin: 0 2px;
+body.is-mobile .hub3d-dock-btn,
+body.is-tablet .hub3d-dock-btn {
+	height: 38px;
+	padding: 0 16px;
 }
 
-.hub3d-insp-del-btn:not(:disabled) {
-	color: #e06c75;
+body.is-mobile .hub3d-insp-tool-btn,
+body.is-tablet .hub3d-insp-tool-btn {
+	width: 38px;
+	height: 38px;
+	padding: 0;
 }
 
-.hub3d-insp-del-btn:disabled {
-	opacity: 0.3;
-	cursor: not-allowed;
+body.is-mobile .hub3d-insp-sel-btn,
+body.is-tablet .hub3d-insp-sel-btn {
+	width: 36px;
+	height: 36px;
 }
 
-.hub3d-insp-elements-layer,
-.hub3d-insp-svg-layer {
-	position: absolute;
-	top: 0;
-	left: 0;
-	pointer-events: none;
-	overflow: visible;
+body.is-mobile .hub3d-pop-input,
+body.is-tablet .hub3d-pop-input,
+body.is-mobile .hub3d-modal-input,
+body.is-tablet .hub3d-modal-input {
+	height: 40px;
 }
 
-.hub3d-insp-svg-layer {
-	z-index: 10;
+body.is-mobile .hub3d-pop-chip,
+body.is-tablet .hub3d-pop-chip {
+	height: 34px;
+	padding: 0 12px;
 }
 
-.hub3d-insp-elements-layer {
-	z-index: 12;
-}
-
-@keyframes hub3d-insp-pop {
-	from { opacity: 0; transform: scale(0.92); }
-	to { opacity: 1; transform: scale(1); }
-}
-
-.hub3d-insp-el {
-	position: absolute;
-	box-sizing: border-box;
-	pointer-events: none;
-}
-
-.hub3d-insp-el.is-pop-in,
-.hub3d-insp-el-svg.is-pop-in {
-	animation: hub3d-insp-pop 0.16s cubic-bezier(0.2, 0.85, 0.25, 1.15);
-}
-
-.is-select-mode .hub3d-insp-el {
-	pointer-events: auto;
-	cursor: move;
-}
-
-.hub3d-insp-el.is-selected {
-	outline: 1.5px dashed var(--hub3d-accent, #9c83e8);
-	outline-offset: 4px;
-}
-
-.hub3d-insp-el-rect {
-	border-style: solid;
-}
-
-.hub3d-insp-el-rect.is-preview {
-	border-style: dashed;
-	background: color-mix(in srgb, var(--hub3d-accent, #9c83e8) 10%, transparent);
-}
-
-.hub3d-insp-el-text {
-	padding: 6px 10px;
-	background: rgba(16, 18, 24, 0.78);
-	border-radius: 8px;
-	line-height: 1.35;
-	word-break: break-word;
-	overflow-wrap: anywhere;
-	white-space: pre-wrap;
-	backdrop-filter: blur(8px);
-}
-
-.hub3d-insp-el-text p {
-	margin: 0;
-}
-
-.hub3d-insp-input-wrap {
-	position: absolute;
-	z-index: 100;
-	pointer-events: auto;
-}
-
-.hub3d-insp-text-input {
-	width: 100%;
-	min-height: 38px;
-	padding: 6px 10px;
-	border-radius: 8px;
-	border: 1.5px solid var(--hub3d-accent, #9c83e8);
-	background: rgba(20, 22, 30, 0.96);
-	color: #f4f6fb;
-	font-family: var(--font-text);
-	line-height: 1.35;
-	resize: none;
-	outline: none;
-	box-sizing: border-box;
-}
-
-.hub3d-insp-el-svg {
-	pointer-events: stroke;
-	cursor: pointer;
-}
-
-.hub3d-insp-el-svg-preview {
-	pointer-events: none;
-	opacity: 0.75;
-	stroke-dasharray: 5 4;
-}
-
-.hub3d-insp-bezier-guide {
-	stroke: rgba(92, 141, 246, 0.45);
-	stroke-width: 1.5;
-	stroke-dasharray: 4 3;
-	pointer-events: none;
-}
-
-.hub3d-insp-arrow-handle,
-.hub3d-insp-resize-handle {
-	pointer-events: all;
-	fill: var(--hub3d-accent, #9c83e8);
-	stroke: #ffffff;
-	stroke-width: 1.8;
-	cursor: grab;
-}
-
-.hub3d-insp-arrow-handle.is-control {
-	fill: #5c8df6;
-}
-
-.hub3d-insp-resize-handle[data-handle="nw"],
-.hub3d-insp-resize-handle[data-handle="se"] { cursor: nwse-resize; }
-.hub3d-insp-resize-handle[data-handle="ne"],
-.hub3d-insp-resize-handle[data-handle="sw"] { cursor: nesw-resize; }
-.hub3d-insp-resize-handle[data-handle="n"],
-.hub3d-insp-resize-handle[data-handle="s"] { cursor: ns-resize; }
-.hub3d-insp-resize-handle[data-handle="e"],
-.hub3d-insp-resize-handle[data-handle="w"] { cursor: ew-resize; }
-
-.hub3d-insp-snap-indicator {
-	fill: rgba(74, 171, 128, 0.28);
-	stroke: #4aab80;
-	stroke-width: 2;
-	pointer-events: none;
-}
-
-.hub3d-insp-snap-indicator.is-hidden {
-	opacity: 0;
-}
-
-.hub3d-insp-marquee {
-	position: absolute;
-	border: 1.5px dashed var(--hub3d-accent, #9c83e8);
-	background: color-mix(in srgb, var(--hub3d-accent, #9c83e8) 12%, transparent);
-	border-radius: 4px;
-	pointer-events: none;
-	z-index: 90;
+body.is-mobile .hub3d-node-inspect-badge,
+body.is-tablet .hub3d-node-inspect-badge {
+	width: 30px;
+	height: 30px;
+	font-size: 14px;
 }

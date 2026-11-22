@@ -582,26 +582,11 @@ this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
 	}
 
 	private syncFloatAnimation(): void {
-		const shouldFloat = this.activeTool === "hand" && !this.interaction;
-		if (shouldFloat && this.floatRafId === null) {
-			const step = (now: number) => {
-				if (this.activeTool !== "hand" || this.interaction) {
-					this.floatRafId = null;
-					this.floatOffsetY = 0;
-					this.scheduleRender();
-					return;
-				}
-				this.floatOffsetY = Math.sin(now * 0.0014) * 5;
-				this.renderNow();
-				this.floatRafId = this.win.requestAnimationFrame(step);
-			};
-			this.floatRafId = this.win.requestAnimationFrame(step);
-		} else if (!shouldFloat && this.floatRafId !== null) {
+		if (this.floatRafId !== null) {
 			this.win.cancelAnimationFrame(this.floatRafId);
 			this.floatRafId = null;
-			this.floatOffsetY = 0;
-			this.scheduleRender();
 		}
+		this.floatOffsetY = 0;
 	}
 
 	private updateCursor(): void {
@@ -680,17 +665,13 @@ private handleResize(): void {
 		if (img && img.complete && img.naturalWidth > 0) {
 			const w = img.naturalWidth;
 			const h = img.naturalHeight;
-			ctx.save();
-			ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-			ctx.shadowBlur = 32;
-			ctx.shadowOffsetY = 12;
+ctx.save();
 			ctx.beginPath();
-			ctx.roundRect(-8, -8, w + 16, h + 16, 16);
-			ctx.fillStyle = "rgba(20, 22, 30, 0.72)";
+			ctx.roundRect(-6, -6, w + 12, h + 12, 14);
+			ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
 			ctx.fill();
-			ctx.shadowColor = "transparent";
-			ctx.lineWidth = 1.5 / safeZoom;
-			ctx.strokeStyle = this.accentColor;
+			ctx.lineWidth = 1 / safeZoom;
+			ctx.strokeStyle = "rgba(160, 166, 184, 0.28)";
 			ctx.stroke();
 
 			ctx.beginPath();

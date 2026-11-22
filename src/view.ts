@@ -868,9 +868,11 @@ public openInspectorForFile(file: TFile): void {
 			new Notice(`В заметке «${file.basename}» не найдено скриншотов`);
 			return;
 		}
-		this.inspectorOverlay?.destroy();
+this.inspectorOverlay?.destroy();
+		this.engine?.setPaused(true);
 		this.inspectorOverlay = new NoteSchemaOverlay(this.app, this.contentEl, file, () => {
 			this.inspectorOverlay = null;
+			this.engine?.setPaused(false);
 		});
 		this.inspectorOverlay.open();
 	}
