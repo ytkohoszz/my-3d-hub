@@ -1,4 +1,8 @@
-import { FuzzySuggestModal, ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath } from "obsidian";
+import { FuzzySuggestModal, ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
+
+interface FocusTrackerApi {
+	openFocusModal?: (opts?: { initialProject?: string }) => void;
+}
 import { BubbleCanvasEngine, BubbleNode, DropTargetInfo, NavLevel } from "./canvas";
 import { extractImagesFromNote } from "./inspector/sceneStore";
 import { NoteSchemaOverlay } from "./inspector/canvasOverlay";
@@ -662,6 +666,28 @@ this.engine?.setData(
 		}
 	}
 
+	private getFocusProjectName(): string {
+		const prog = this.level.program && this.level.program !== "__none__" ? this.level.program : "";
+		const topic = this.level.topicPath.trim();
+		if (prog && topic) return `${prog} / ${topic}`;
+		if (prog) return prog;
+		if (topic) return `${AREA_NAME} / ${topic}`;
+		return AREA_NAME;
+	}
+
+	private openFocusTracker(): void {
+		const winApi = (window as unknown as { __myFocusTracker?: FocusTrackerApi }).__myFocusTracker;
+		const pluginApi = (
+			this.app as unknown as { plugins?: { getPlugin?: (id: string) => FocusTrackerApi | undefined } }
+		).plugins?.getPlugin?.("my-focus-tracker");
+		const api = winApi?.openFocusModal ? winApi : pluginApi;
+		if (!api?.openFocusModal) {
+			new Notice("Плагин my-focus-tracker не активен");
+			return;
+		}
+		api.openFocusModal({ initialProject: this.getFocusProjectName() });
+	}
+
 	private renderTopIsland(): void {
 		if (!this.topIslandEl) return;
 		this.topIslandEl.empty();
@@ -734,13 +760,24 @@ this.engine?.setData(
 			text: `${this.notes.length} зам. · ${programsCount} прогр.`
 		});
 
-// Кнопка режима сцепления пузырей (удобно на iPad + подсказка для ПК)
+// Кнопка запуска фокуса (my-focus-tracker)
+		const focusProject = this.getFocusProjectName();
+		const focusBtn = this.topIslandEl.createEl("button", {
+			cls: "hub3d-crumb-btn hub3d-crumb-icon-btn"
+		});
+		setIcon(focusBtn, "timer");
+		focusBtn.title = `Фокус: ${focusProject}`;
+		focusBtn.setAttribute("aria-label", `Фокус: ${focusProject}`);
+		focusBtn.addEventListener("click", () => this.openFocusTracker());
+
+		// Кнопка режима сцепления пузырей (удобно на iPad + подсказка для ПК)
 		const isLinkOn = this.engine?.isLinkMode() ?? false;
 		const linkBtn = this.topIslandEl.createEl("button", {
-			cls: "hub3d-crumb-btn" + (isLinkOn ? " is-current" : ""),
-			text: "🔗"
+			cls: "hub3d-crumb-btn hub3d-crumb-icon-btn" + (isLinkOn ? " is-current" : "")
 		});
+		setIcon(linkBtn, "link-2");
 		linkBtn.title = "Режим сцепления пузырей (или Shift + перетаскивание мышью)";
+		linkBtn.setAttribute("aria-label", "Режим сцепления пузырей");
 		linkBtn.addEventListener("click", () => {
 			if (!this.engine) return;
 			const next = !this.engine.isLinkMode();
@@ -751,10 +788,11 @@ this.engine?.setData(
 
 		// Кнопка центрирования камеры
 		const centerBtn = this.topIslandEl.createEl("button", {
-			cls: "hub3d-crumb-btn",
-			text: "⌖"
+			cls: "hub3d-crumb-btn hub3d-crumb-icon-btn"
 		});
+		setIcon(centerBtn, "crosshair");
 		centerBtn.title = "Центрировать холст";
+		centerBtn.setAttribute("aria-label", "Центрировать холст");
 		centerBtn.addEventListener("click", () => this.engine?.resetCamera());
 	}
 
@@ -956,10 +994,10 @@ private openNodeInspector(note: Note3D): void {
 			this.closeNoteStylePopover();
 		});
 
-		// Позиционирование внутри окна
+		// Позиционирование внутри окна по фактическим размерам поповера
 		const rootRect = this.contentEl.getBoundingClientRect();
-		const popW = 248;
-		const popH = 148;
+		const popW = pop.offsetWidth || 248;
+		const popH = pop.offsetHeight || 156;
 		const left = Math.max(12, Math.min(rootRect.width - popW - 12, clientX - rootRect.left + 8));
 		const top = Math.max(12, Math.min(rootRect.height - popH - 12, clientY - rootRect.top - 12));
 		pop.style.left = `${Math.round(left)}px`;

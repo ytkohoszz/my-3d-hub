@@ -13,6 +13,7 @@
 	font-family: var(--font-interface);
 	user-select: none;
 	-webkit-user-select: none;
+	-webkit-touch-callout: none;
 	touch-action: none;
 }
 
@@ -83,6 +84,9 @@
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
+	max-width: calc(100% - 64px);
+	overflow-x: auto;
+	scrollbar-width: none;
 	padding: 4px 10px;
 	border-radius: var(--radius-xl, 20px);
 	-electron-corner-smoothing: var(--corner-smoothing, 60%);
@@ -93,12 +97,17 @@
 	box-shadow: var(--glass-base-l, none), var(--menu-shadow, 0 10px 28px rgba(0, 0, 0, 0.28));
 }
 
+.hub3d-top-island::-webkit-scrollbar {
+	display: none;
+}
+
 .hub3d-root button.hub3d-crumb-btn {
 	appearance: none;
 	border: none;
 	outline: none;
 	box-shadow: none;
 	contain: content;
+	flex-shrink: 0;
 	height: 26px;
 	padding: 0 9px;
 	border-radius: var(--pill-radius, var(--radius-l, 18px));
@@ -148,13 +157,28 @@
 	font-size: 0.8em;
 }
 
+.hub3d-root button.hub3d-crumb-icon-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	padding: 0;
+}
+
+.hub3d-root button.hub3d-crumb-icon-btn svg.svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
 .hub3d-crumb-meta {
+	flex-shrink: 0;
 	margin-left: 4px;
 	padding-left: 8px;
 	border-left: 1px solid var(--trans-faint-20, var(--background-modifier-border));
 	font-size: 0.76em;
 	color: var(--text-muted);
 	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
 }
 
 /* Зона удаления (корзина) */
@@ -987,10 +1011,48 @@
 /* АДАПТАЦИЯ ПОД IPADOS / TOUCH                              */
 /* ========================================================= */
 
-body.is-mobile .hub3d-crumb-btn,
-body.is-tablet .hub3d-crumb-btn {
+body.is-mobile .hub3d-root button.hub3d-crumb-btn,
+body.is-tablet .hub3d-root button.hub3d-crumb-btn {
 	height: 36px;
 	padding: 0 12px;
+}
+
+body.is-mobile .hub3d-root button.hub3d-crumb-icon-btn,
+body.is-tablet .hub3d-root button.hub3d-crumb-icon-btn {
+	width: 36px;
+	height: 36px;
+	padding: 0;
+}
+
+body.is-mobile .hub3d-root button.hub3d-crumb-icon-btn svg.svg-icon,
+body.is-tablet .hub3d-root button.hub3d-crumb-icon-btn svg.svg-icon {
+	width: 16px;
+	height: 16px;
+}
+
+body.is-mobile .hub3d-note-style-popover,
+body.is-tablet .hub3d-note-style-popover {
+	width: min(304px, calc(100vw - 24px));
+	padding: 14px;
+	gap: 12px;
+}
+
+body.is-mobile .hub3d-style-swatches,
+body.is-tablet .hub3d-style-swatches {
+	grid-template-columns: repeat(4, 1fr);
+	gap: 10px;
+}
+
+body.is-mobile .hub3d-style-swatch,
+body.is-tablet .hub3d-style-swatch {
+	width: 34px;
+	height: 34px;
+}
+
+body.is-mobile .hub3d-style-icon-btn,
+body.is-tablet .hub3d-style-icon-btn {
+	height: 38px;
+	font-size: 18px;
 }
 
 body.is-mobile .hub3d-dock-btn,

@@ -7,6 +7,8 @@ export interface NavLevel {
 
 const JELLY_SEGMENTS = 24;
 const CLUSTER_SEGMENTS = 36;
+const LONG_PRESS_DELAY_MS = 480;
+const LONG_PRESS_MOVE_TOLERANCE = 9;
 
 export interface BubbleNode {
 	id: string;
@@ -114,6 +116,8 @@ private pointerDownPos = { x: 0, y: 0 };
 	private pointerDownTime = 0;
 	private dragOffset = { x: 0, y: 0 };
 	private lastPinchDist = 0;
+	private longPressTimer: number | null = null;
+	private longPressTriggered = false;
 private trashZoneEl: HTMLElement | null = null;
 	private outsideZoneEl: HTMLElement | null = null;
 	private topIslandEl: HTMLElement | null = null;
@@ -190,7 +194,15 @@ window.addEventListener("focus", this.focusWakeHandler);
 		}
 	}
 
+	private clearLongPress(): void {
+		if (this.longPressTimer !== null) {
+			window.clearTimeout(this.longPressTimer);
+			this.longPressTimer = null;
+		}
+	}
+
 	public destroy(): void {
+		this.clearLongPress();
 		window.removeEventListener("focus", this.focusWakeHandler);
 		if (this.rafId !== null) {
 			cancelAnimationFrame(this.rafId);
@@ -977,6 +989,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 			this.pointers.set(e.pointerId, { x: sx, y: sy });
 
 			if (this.pointers.size === 2) {
+				this.clearLongPress();
 				const pts = Array.from(this.pointers.values());
 				const p0 = pts[0];
 				const p1 = pts[1];
@@ -988,6 +1001,8 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 				return;
 			}
 
+			this.clearLongPress();
+			this.longPressTriggered = false;
 			this.activePointerId = e.pointerId;
 			this.pointerDownPos = { x: sx, y: sy };
 			this.pointerDownTime = performance.now();
@@ -1031,6 +1046,25 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 				this.dragMode = "bubble";
 				this.draggedNode = hit;
 				this.dragOffset = { x: world.x - hit.x, y: world.y - hit.y };
+
+				// Долгое нажатие на карточку заметки на тач-экранах (iPadOS / стилус) открывает стилизацию
+				if ((e.pointerType === "touch" || e.pointerType === "pen") && hit.kind === "note" && hit.note) {
+					const targetNote = hit.note;
+					const pressX = e.clientX;
+					const pressY = e.clientY;
+					this.longPressTimer = window.setTimeout(() => {
+						this.longPressTimer = null;
+						this.longPressTriggered = true;
+						this.dragMode = "none";
+						this.draggedNode = null;
+						this.hoveredNode = null;
+						this.isOverTrash = false;
+						this.activeDropTarget = null;
+						this.dropHoverBubble = null;
+						this.callbacks.onDragStateChange(null, false, null);
+						this.callbacks.onStyleNote(targetNote, pressX, pressY);
+					}, LONG_PRESS_DELAY_MS);
+				}
 				return;
 			}
 
@@ -1084,6 +1118,13 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 						this.targetCamX = this.camX;
 						this.targetCamY = this.camY;
 					} else if (this.dragMode === "bubble" && this.draggedNode) {
+						if (this.longPressTimer !== null) {
+							const moved = Math.hypot(sx - this.pointerDownPos.x, sy - this.pointerDownPos.y);
+							if (moved < LONG_PRESS_MOVE_TOLERANCE) {
+								return;
+							}
+							this.clearLongPress();
+						}
 						const world = this.screenToWorld(sx, sy);
 						this.draggedNode.x = world.x - this.dragOffset.x;
 						this.draggedNode.y = world.y - this.dragOffset.y;
@@ -1161,6 +1202,17 @@ const canTrash =
 
 			if (e.pointerId !== this.activePointerId) return;
 
+			this.clearLongPress();
+			if (this.longPressTriggered) {
+				this.longPressTriggered = false;
+				this.activePointerId = null;
+				this.dragMode = "none";
+				this.draggedNode = null;
+				this.draggedCluster = null;
+				this.linkSourceNode = null;
+				return;
+			}
+
 			const rect = this.canvas.getBoundingClientRect();
 			const sx = e.clientX - rect.left;
 			const sy = e.clientY - rect.top;
@@ -1205,7 +1257,7 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 					this.callbacks.onDropToTrash(droppedNode);
 				} else if (dropTarget && droppedNode.kind === "note" && droppedNode.note && movedDist >= 7) {
 					this.callbacks.onMoveNoteToTopic(droppedNode.note, dropTarget.topicPath);
-				} else if (movedDist < 7 && elapsed < 450) {
+				} else if (movedDist < 7 && elapsed < LONG_PRESS_DELAY_MS) {
 					if (droppedNode.kind === "program") {
 						this.callbacks.onNavigate({ program: droppedNode.targetValue, topicPath: "" });
 					} else if (droppedNode.kind === "topic" || droppedNode.kind === "folder") {
