@@ -66,7 +66,12 @@
 	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
 }
 
+.hub3d-node-inspect-badge.is-empty {
+	opacity: 0.42;
+}
+
 .hub3d-node-inspect-badge:hover {
+	opacity: 1;
 	background: var(--interactive-hover);
 	color: var(--text-normal);
 }
@@ -1040,6 +1045,74 @@
 }
 
 .hub3d-style-reset-btn svg.svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
+/* Быстрый поиск 3D-заметок */
+.hub3d-search-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.hub3d-search-main {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.hub3d-search-title {
+	font-size: 0.9em;
+	font-weight: var(--font-semi-medium, 500);
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.hub3d-search-meta {
+	font-size: 0.76em;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.hub3d-search-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	flex-shrink: 0;
+}
+
+.hub3d-search-act-btn {
+	appearance: none;
+	border: none;
+	outline: none;
+	box-shadow: none;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	border-radius: var(--radius-s, 8px);
+	background: transparent;
+	color: var(--icon-color, var(--text-muted));
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	transition: background-color var(--anim-super-smooth, 75ms ease-out), color var(--anim-super-smooth, 75ms ease-out);
+}
+
+.hub3d-search-act-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.hub3d-search-act-btn svg.svg-icon {
 	width: 14px;
 	height: 14px;
 }

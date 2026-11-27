@@ -469,15 +469,28 @@ currentStyle: { ...scene.appState.currentStyle }
 		return out;
 	}
 
-	private async writeScenes(scenesMap: ScenesByKey): Promise<void> {
+private async writeScenes(scenesMap: ScenesByKey): Promise<void> {
+		const singleEmptyDefaultBoard =
+			scenesMap.size === 1 &&
+			scenesMap.has("__board_1__") &&
+			!scenesMap.get("__board_1__")?.deleted &&
+			!scenesMap.get("__board_1__")?.title?.trim() &&
+			!scenesMap.get("__board_1__")?.elements.some((el) => !el.isDeleted);
+
 		const payload: Record<string, unknown> = {};
-		for (const [key, scene] of scenesMap.entries()) {
-			if (scene.deleted || key.startsWith("__board_") || scene.elements.some((el) => !el.isDeleted)) {
-				payload[key] = this.serializeScene(scene);
+		if (!singleEmptyDefaultBoard) {
+			for (const [key, scene] of scenesMap.entries()) {
+				if (scene.deleted || key.startsWith("__board_") || scene.elements.some((el) => !el.isDeleted)) {
+					payload[key] = this.serializeScene(scene);
+				}
 			}
 		}
 
 		const op = this.saveQueue.then(async () => {
+			if (Object.keys(payload).length === 0) {
+				const existingFm = this.app.metadataCache.getFileCache(this.file)?.frontmatter;
+				if (!existingFm || existingFm["схемы_аннотации"] === undefined) return;
+			}
 			await this.app.fileManager.processFrontMatter(this.file, (fm: Record<string, unknown>) => {
 				if (Object.keys(payload).length === 0) {
 					delete fm["схемы_аннотации"];

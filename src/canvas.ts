@@ -5,8 +5,6 @@ export interface NavLevel {
 	topicPath: string;
 }
 
-const JELLY_SEGMENTS = 24;
-const CLUSTER_SEGMENTS = 36;
 const LONG_PRESS_DELAY_MS = 480;
 const LONG_PRESS_MOVE_TOLERANCE = 9;
 
@@ -28,21 +26,12 @@ export interface BubbleNode {
 	phase: number;
 	targetValue: string;
 	note?: Note3D;
-	// Радиальные смещения и скорости вершин для эффекта желе
-	radialOffsets: Float32Array;
-	radialVels: Float32Array;
-	overlapGlow: number;
 }
 
 interface ClusterGroup {
 	key: string;
 	title: string;
 	nodes: BubbleNode[];
-	cx: number;
-	cy: number;
-	radii: Float32Array;
-	radialVels: Float32Array;
-	phase: number;
 	headerX: number;
 	headerY: number;
 	headerW: number;
@@ -107,6 +96,8 @@ private clusterNames: Record<string, string> = {};
 	private linkPointerWorld = { x: 0, y: 0 };
 	private hoveredNode: BubbleNode | null = null;
 	private hoveredLinkIndex = -1;
+	private highlightedNodeId: string | null = null;
+	private highlightTimer: number | null = null;
 
 	// Режим сцепления (для тач-экрана iPad или кнопки в панели)
 	private linkModeActive = false;
@@ -128,7 +119,6 @@ private trashZoneEl: HTMLElement | null = null;
 
 private rafId: number | null = null;
 	private lastTime = 0;
-	private animTimeSec = 0;
 	private width = 0;
 	private height = 0;
 private dpr = 1;
@@ -154,12 +144,7 @@ private resizeObserver: ResizeObserver;
 	private cardLayoutCache = new Map<string, { lines: string[]; h: number }>();
 	private gridPattern: CanvasPattern | null = null;
 	private gridPatternStep = 0;
-	private paused = false;
-	private lastRenderTime = 0;
-	private focusWakeHandler = () => {
-		this.lastTime = performance.now();
-		this.lastRenderTime = 0;
-	};
+private paused = false;
 
 	constructor(host: HTMLElement, callbacks: CanvasCallbacks) {
 		this.host = host;
@@ -181,18 +166,26 @@ private resizeObserver: ResizeObserver;
 		this.resizeObserver.observe(this.host);
 		this.handleResize();
 
-window.addEventListener("focus", this.focusWakeHandler);
 		this.bindEvents();
-		this.startLoop();
+		this.scheduleRender();
 	}
 
-public setPaused(paused: boolean): void {
+	public setPaused(paused: boolean): void {
 		this.paused = paused;
-		if (!paused) {
-			this.lastTime = performance.now();
-			this.lastRenderTime = 0;
+		if (paused) {
+			if (this.rafId !== null) {
+				cancelAnimationFrame(this.rafId);
+				this.rafId = null;
+			}
+			this.lastTime = 0;
+		} else {
 			this.render();
+			this.scheduleRender();
 		}
+	}
+
+	public requestRender(): void {
+		this.scheduleRender();
 	}
 
 	private clearLongPress(): void {
@@ -204,7 +197,10 @@ public setPaused(paused: boolean): void {
 
 	public destroy(): void {
 		this.clearLongPress();
-		window.removeEventListener("focus", this.focusWakeHandler);
+		if (this.highlightTimer !== null) {
+			window.clearTimeout(this.highlightTimer);
+			this.highlightTimer = null;
+		}
 		if (this.rafId !== null) {
 			cancelAnimationFrame(this.rafId);
 			this.rafId = null;
@@ -219,6 +215,7 @@ public setPaused(paused: boolean): void {
 		if (!active) {
 			this.pendingLinkFromId = null;
 		}
+		this.scheduleRender();
 	}
 
 	public isLinkMode(): boolean {
@@ -316,6 +313,30 @@ public setResourcePathResolver(resolver: (vaultPath: string) => string): void {
 		this.targetCamX = 0;
 		this.targetCamY = 0;
 		this.targetCamZoom = 1;
+		this.scheduleRender();
+	}
+
+	public focusNote(notePath: string): void {
+		const target = this.nodes.find((n) => n.kind === "note" && n.note?.path === notePath);
+		if (!target) {
+			this.resetCamera();
+			return;
+		}
+		this.targetCamX = target.x;
+		this.targetCamY = target.y;
+		this.targetCamZoom = 1;
+		this.highlightedNodeId = target.id;
+		if (this.highlightTimer !== null) {
+			window.clearTimeout(this.highlightTimer);
+		}
+		this.highlightTimer = window.setTimeout(() => {
+			this.highlightTimer = null;
+			if (this.highlightedNodeId === target.id) {
+				this.highlightedNodeId = null;
+				this.scheduleRender();
+			}
+		}, 1500);
+		this.scheduleRender();
 	}
 
 	public setData(
@@ -599,8 +620,6 @@ directList.forEach((note, idx) => {
 				node.y = existing.y;
 				node.vx = existing.vx;
 				node.vy = existing.vy;
-				node.radialOffsets = existing.radialOffsets;
-				node.radialVels = existing.radialVels;
 			}
 		}
 
@@ -608,20 +627,18 @@ directList.forEach((note, idx) => {
 		this.resolveAllOverlaps();
 		this.recomputeClusters();
 		this.rebuildActionBadges();
+		this.scheduleRender();
 	}
 
 private createNode(
-		base: Omit<BubbleNode, "vx" | "vy" | "anchorX" | "anchorY" | "radialOffsets" | "radialVels" | "overlapGlow">
+		base: Omit<BubbleNode, "vx" | "vy" | "anchorX" | "anchorY">
 	): BubbleNode {
 		return {
 			...base,
 			vx: 0,
 			vy: 0,
 			anchorX: base.x,
-			anchorY: base.y,
-			radialOffsets: new Float32Array(JELLY_SEGMENTS),
-			radialVels: new Float32Array(JELLY_SEGMENTS),
-			overlapGlow: 0
+			anchorY: base.y
 		};
 	}
 
@@ -665,7 +682,7 @@ private getInitialPos(id: string, index: number, total: number, ringRadius: numb
 			let hh = this.noteHalfHeights.get(node.id);
 			if (hh === undefined) {
 				this.ctx.font = `500 13.5px ${this.uiFontFamily}`;
-				const maxTextW = node.note?.hasImages ? 248 - 84 : 248 - 64;
+				const maxTextW = 248 - 84;
 				const lines = this.wrapLines(this.ctx, node.label, maxTextW);
 				const h = Math.max(52, lines.length * 17 + 20);
 				hh = h / 2;
@@ -805,11 +822,6 @@ const prev = prevByKey.get(key);
 					key,
 					title,
 					nodes: comp,
-					cx: prev?.cx ?? 0,
-					cy: prev?.cy ?? 0,
-					radii: prev?.radii ?? new Float32Array(CLUSTER_SEGMENTS),
-					radialVels: prev?.radialVels ?? new Float32Array(CLUSTER_SEGMENTS),
-					phase: prev?.phase ?? autoIdx * 1.17,
 					headerX: prev?.headerX ?? 0,
 					headerY: prev?.headerY ?? 0,
 					headerW: prev?.headerW ?? 96,
@@ -828,13 +840,14 @@ private rebuildActionBadges(): void {
 		this.lastBadgeTransforms.clear();
 
 		for (const node of this.nodes) {
-			if (node.kind === "note" && node.note && node.note.hasImages) {
+			if (node.kind === "note" && node.note) {
 				const noteRef = node.note;
+				const hasContent = noteRef.hasImages || noteRef.hasSchema;
 				const btn = document.createElement("button");
 				btn.type = "button";
-				btn.className = "hub3d-node-inspect-badge";
+				btn.className = "hub3d-node-inspect-badge" + (hasContent ? "" : " is-empty");
 				btn.textContent = "☊";
-				btn.title = "Открыть схему нод в инспекторе";
+				btn.title = hasContent ? "Открыть схему нод в инспекторе" : "Открыть свободную схему в инспекторе";
 				btn.addEventListener("pointerdown", (e) => e.stopPropagation());
 				btn.addEventListener("click", (e) => {
 					e.stopPropagation();
@@ -879,6 +892,7 @@ const cs = getComputedStyle(this.host);
 
 		this.canvas.width = Math.round(this.width * this.dpr);
 		this.canvas.height = Math.round(this.height * this.dpr);
+		this.scheduleRender();
 	}
 
 	private screenToWorld(sx: number, sy: number): { x: number; y: number } {
@@ -1012,23 +1026,25 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 			const world = this.screenToWorld(sx, sy);
 			const hit = this.hitTest(world.x, world.y);
 
-			// 1. Сцепление пузырей через Shift+ЛКМ, ПКМ или активный режим связи (iPad)
+			// 1. Сцепление пузырей через Shift+ЛКМ, ПКМ или активный режим связи
 			const isLinkGesture = e.button === 2 || e.shiftKey || this.linkModeActive;
 			if (hit && isLinkGesture) {
 				if (this.linkModeActive) {
-					// Пошаговое сцепление тапами на iPad
 					if (!this.pendingLinkFromId) {
 						this.pendingLinkFromId = hit.id;
+						this.scheduleRender();
 						return;
 					} else if (this.pendingLinkFromId !== hit.id) {
 						this.callbacks.onToggleLink(this.pendingLinkFromId, hit.id);
 						this.pendingLinkFromId = null;
+						this.scheduleRender();
 						return;
 					}
 				}
 				this.dragMode = "link";
 				this.linkSourceNode = hit;
 				this.linkPointerWorld = { x: world.x, y: world.y };
+				this.scheduleRender();
 				return;
 			}
 
@@ -1040,6 +1056,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 				this.dragMode = "cluster";
 				this.draggedCluster = hitCluster;
 				this.dragOffset = { x: world.x, y: world.y };
+				this.scheduleRender();
 				return;
 			}
 
@@ -1049,7 +1066,6 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 				this.draggedNode = hit;
 				this.dragOffset = { x: world.x - hit.x, y: world.y - hit.y };
 
-				// Долгое нажатие на карточку заметки на тач-экранах (iPadOS / стилус) открывает стилизацию
 				if ((e.pointerType === "touch" || e.pointerType === "pen") && hit.kind === "note" && hit.note) {
 					const targetNote = hit.note;
 					const pressX = e.clientX;
@@ -1065,8 +1081,10 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 						this.dropHoverBubble = null;
 						this.callbacks.onDragStateChange(null, false, null);
 						this.callbacks.onStyleNote(targetNote, pressX, pressY);
+						this.scheduleRender();
 					}, LONG_PRESS_DELAY_MS);
 				}
+				this.scheduleRender();
 				return;
 			}
 
@@ -1089,6 +1107,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 			const rect = this.canvas.getBoundingClientRect();
 			const sx = e.clientX - rect.left;
 			const sy = e.clientY - rect.top;
+			let needsRender = false;
 
 			if (this.pointers.has(e.pointerId)) {
 				const prev = this.pointers.get(e.pointerId)!;
@@ -1103,6 +1122,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 						if (this.lastPinchDist > 0 && dist > 0) {
 							const factor = dist / this.lastPinchDist;
 							this.targetCamZoom = Math.min(2.6, Math.max(0.4, this.targetCamZoom * factor));
+							this.scheduleRender();
 						}
 						this.lastPinchDist = dist;
 					}
@@ -1119,6 +1139,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 						this.camY -= dy;
 						this.targetCamX = this.camX;
 						this.targetCamY = this.camY;
+						needsRender = true;
 					} else if (this.dragMode === "bubble" && this.draggedNode) {
 						if (this.longPressTimer !== null) {
 							const moved = Math.hypot(sx - this.pointerDownPos.x, sy - this.pointerDownPos.y);
@@ -1127,7 +1148,6 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 							}
 							this.clearLongPress();
 						}
-						const world = this.screenToWorld(sx, sy);
 						this.draggedNode.x = world.x - this.dragOffset.x;
 						this.draggedNode.y = world.y - this.dragOffset.y;
 						this.draggedNode.anchorX = this.draggedNode.x;
@@ -1135,7 +1155,7 @@ private getLinkPoints(a: BubbleNode, b: BubbleNode, _seed: number): Array<{ x: n
 						this.draggedNode.vx = 0;
 						this.draggedNode.vy = 0;
 
-const canTrash =
+						const canTrash =
 							this.draggedNode.kind === "topic" ||
 							this.draggedNode.kind === "folder" ||
 							this.draggedNode.kind === "note";
@@ -1162,6 +1182,7 @@ const canTrash =
 							overTrash,
 							this.activeDropTarget
 						);
+						needsRender = true;
 					} else if (this.dragMode === "cluster" && this.draggedCluster) {
 						const dx = world.x - this.dragOffset.x;
 						const dy = world.y - this.dragOffset.y;
@@ -1174,16 +1195,23 @@ const canTrash =
 							member.vx = 0;
 							member.vy = 0;
 						}
+						needsRender = true;
 					} else if (this.dragMode === "link") {
 						this.linkPointerWorld = { x: world.x, y: world.y };
+						needsRender = true;
 					}
 				}
 			}
 
 			if (e.pointerType !== "touch") {
 				const world = this.screenToWorld(sx, sy);
-				this.hoveredNode = this.hitTest(world.x, world.y);
-				this.hoveredLinkIndex = this.hoveredNode ? -1 : this.hitTestLink(world.x, world.y);
+				const nextHover = this.hitTest(world.x, world.y);
+				const nextHoverLink = nextHover ? -1 : this.hitTestLink(world.x, world.y);
+				if (nextHover !== this.hoveredNode || nextHoverLink !== this.hoveredLinkIndex) {
+					this.hoveredNode = nextHover;
+					this.hoveredLinkIndex = nextHoverLink;
+					needsRender = true;
+				}
 				const hitHeader = this.hitTestClusterHeader(world.x, world.y);
 
 				if (this.dragMode === "link") {
@@ -1195,6 +1223,16 @@ const canTrash =
 				} else {
 					this.canvas.style.cursor = "grab";
 				}
+			}
+
+			if (needsRender) this.scheduleRender();
+		});
+
+		this.canvas.addEventListener("pointerleave", () => {
+			if (this.dragMode === "none" && (this.hoveredNode !== null || this.hoveredLinkIndex !== -1)) {
+				this.hoveredNode = null;
+				this.hoveredLinkIndex = -1;
+				this.scheduleRender();
 			}
 		});
 
@@ -1212,6 +1250,7 @@ const canTrash =
 				this.draggedNode = null;
 				this.draggedCluster = null;
 				this.linkSourceNode = null;
+				this.scheduleRender();
 				return;
 			}
 
@@ -1222,7 +1261,7 @@ const canTrash =
 			const elapsed = performance.now() - this.pointerDownTime;
 			const world = this.screenToWorld(sx, sy);
 
-if (this.dragMode === "link" && this.linkSourceNode) {
+			if (this.dragMode === "link" && this.linkSourceNode) {
 				if (
 					movedDist < 7 &&
 					elapsed < 450 &&
@@ -1245,7 +1284,7 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 						this.callbacks.onSavePosition(member.id, Math.round(member.anchorX), Math.round(member.anchorY));
 					}
 				}
-} else if (this.dragMode === "bubble" && this.draggedNode) {
+			} else if (this.dragMode === "bubble" && this.draggedNode) {
 				const droppedNode = this.draggedNode;
 				const wasOverTrash = this.isOverTrash;
 				const dropTarget = this.activeDropTarget;
@@ -1282,6 +1321,7 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 			this.draggedNode = null;
 			this.draggedCluster = null;
 			this.linkSourceNode = null;
+			this.scheduleRender();
 		};
 
 		this.canvas.addEventListener("pointerup", endPointer);
@@ -1306,46 +1346,47 @@ if (this.dragMode === "link" && this.linkSourceNode) {
 				this.camY += before.y - after.y;
 				this.targetCamX = this.camX;
 				this.targetCamY = this.camY;
+				this.scheduleRender();
 			},
 			{ passive: false }
 		);
 	}
 
-private startLoop(): void {
-		this.lastTime = performance.now();
-		const tick = (now: number) => {
-			this.rafId = requestAnimationFrame(tick);
-			if (this.paused || document.hidden || !document.hasFocus() || this.host.offsetParent === null) {
-				this.lastTime = now;
+	private scheduleRender(): void {
+		if (this.paused || this.rafId !== null) return;
+		this.rafId = requestAnimationFrame((now) => {
+			this.rafId = null;
+			if (this.paused || document.hidden || this.host.offsetParent === null) {
+				this.lastTime = 0;
 				return;
 			}
-
-			const isActive =
-				this.dragMode !== "none" ||
-				this.hoveredNode !== null ||
-				Math.abs(this.targetCamZoom - this.camZoom) > 0.002 ||
-				Math.abs(this.targetCamX - this.camX) > 0.2 ||
-				Math.abs(this.targetCamY - this.camY) > 0.2;
-
-			if (!isActive && now - this.lastRenderTime < 32) {
-				return;
-			}
-
-			const dt = Math.min(0.033, Math.max(0.001, (now - this.lastTime) / 1000));
+			const dt = this.lastTime > 0 ? Math.min(0.033, Math.max(0.001, (now - this.lastTime) / 1000)) : 0.016;
 			this.lastTime = now;
-			this.lastRenderTime = now;
-			this.stepPhysics(now / 1000, dt);
+			const stillAnimating = this.stepCamera(dt);
 			this.render();
-		};
-		this.rafId = requestAnimationFrame(tick);
+			if (stillAnimating) {
+				this.scheduleRender();
+			} else {
+				this.lastTime = 0;
+			}
+		});
 	}
 
-private stepPhysics(timeSec: number, dt: number): void {
-		this.animTimeSec = timeSec;
+	private stepCamera(dt: number): boolean {
+		const dx = this.targetCamX - this.camX;
+		const dy = this.targetCamY - this.camY;
+		const dz = this.targetCamZoom - this.camZoom;
+		if (Math.abs(dx) <= 0.15 && Math.abs(dy) <= 0.15 && Math.abs(dz) <= 0.0015) {
+			this.camX = this.targetCamX;
+			this.camY = this.targetCamY;
+			this.camZoom = this.targetCamZoom;
+			return false;
+		}
 		const camLerp = 1 - Math.pow(0.001, dt);
-		this.camX += (this.targetCamX - this.camX) * camLerp;
-		this.camY += (this.targetCamY - this.camY) * camLerp;
-		this.camZoom += (this.targetCamZoom - this.camZoom) * camLerp;
+		this.camX += dx * camLerp;
+		this.camY += dy * camLerp;
+		this.camZoom += dz * camLerp;
+		return true;
 	}
 
 	private render(): void {
@@ -1517,53 +1558,6 @@ private drawLinks(ctx: CanvasRenderingContext2D): void {
 			ctx.stroke();
 			ctx.restore();
 		}
-	}
-
-private applyJellyDent(deform: Float32Array | undefined, contactAngle: number, strength: number): void {
-		if (!deform || strength <= 0.05) return;
-		for (let k = 0; k < JELLY_SEGMENTS; k++) {
-			const theta = (k / JELLY_SEGMENTS) * Math.PI * 2;
-			let diff = theta - contactAngle;
-			while (diff > Math.PI) diff -= Math.PI * 2;
-			while (diff < -Math.PI) diff += Math.PI * 2;
-
-			// Косинус удвоенного угла даёт вмятину в точке контакта (diff=0)
-			// и естественное расширение пузыря по бокам (diff = ±PI/2) с сохранением объёма
-			const cos1 = Math.cos(diff);
-			const cos2 = Math.cos(diff * 2);
-			if (cos1 > -0.25) {
-				deform[k] = (deform[k] ?? 0) - cos2 * strength * Math.max(0.2, cos1 + 0.35);
-			}
-		}
-	}
-
-	private traceJellyPath(ctx: CanvasRenderingContext2D, node: BubbleNode, scale: number): void {
-		const ptsX = new Float32Array(JELLY_SEGMENTS);
-		const ptsY = new Float32Array(JELLY_SEGMENTS);
-
-		for (let k = 0; k < JELLY_SEGMENTS; k++) {
-			const theta = (k / JELLY_SEGMENTS) * Math.PI * 2;
-			const r = Math.max(18, (node.radius + (node.radialOffsets[k] ?? 0)) * scale);
-			ptsX[k] = node.x + Math.cos(theta) * r;
-			ptsY[k] = node.y + Math.sin(theta) * r;
-		}
-
-		ctx.beginPath();
-		const lastX = ptsX[JELLY_SEGMENTS - 1]!;
-		const lastY = ptsY[JELLY_SEGMENTS - 1]!;
-		const firstX = ptsX[0]!;
-		const firstY = ptsY[0]!;
-		ctx.moveTo((lastX + firstX) * 0.5, (lastY + firstY) * 0.5);
-
-		for (let k = 0; k < JELLY_SEGMENTS; k++) {
-			const nextIdx = (k + 1) % JELLY_SEGMENTS;
-			const cx = ptsX[k]!;
-			const cy = ptsY[k]!;
-			const nx = ptsX[nextIdx]!;
-			const ny = ptsY[nextIdx]!;
-			ctx.quadraticCurveTo(cx, cy, (cx + nx) * 0.5, (cy + ny) * 0.5);
-		}
-		ctx.closePath();
 	}
 
 private drawBubble(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
@@ -1841,17 +1835,19 @@ private getCachedIconImage(vaultPath: string): HTMLImageElement | null {
 		if (cached) return cached;
 		if (!this.resolveResourcePath) return null;
 		const img = new Image();
+		img.onload = () => this.scheduleRender();
 		img.src = this.resolveResourcePath(vaultPath);
 		this.iconImages.set(vaultPath, img);
 		return img;
 	}
 
-	private drawNoteCard(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
+private drawNoteCard(ctx: CanvasRenderingContext2D, node: BubbleNode): void {
+		const isHighlight = this.highlightedNodeId === node.id;
 		const isHover = this.hoveredNode === node || this.draggedNode === node;
 		const style = node.note ? this.noteStyles[node.note.path] : undefined;
 		const w = 248;
 		const lineHeight = 17;
-const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
+		const maxTextW = w - 84;
 
 		ctx.save();
 		ctx.font = `600 13.5px ${this.uiFontFamily}`;
@@ -1869,11 +1865,11 @@ const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 		const y = node.y - h / 2;
 		const rad = 14;
 
-		if (isHover) {
+		if (isHighlight || isHover) {
 			ctx.beginPath();
 			ctx.roundRect(x - 3, y - 3, w + 6, h + 6, rad + 3);
-			ctx.strokeStyle = this.themeColors.borderStrong;
-			ctx.globalAlpha = 0.25;
+			ctx.strokeStyle = isHighlight ? this.themeColors.accent : this.themeColors.borderStrong;
+			ctx.globalAlpha = isHighlight ? 0.45 : 0.25;
 			ctx.lineWidth = 3;
 			ctx.stroke();
 			ctx.globalAlpha = 1;
@@ -1884,8 +1880,12 @@ const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 		ctx.fillStyle = isHover ? this.themeColors.surfaceHover : this.themeColors.surface;
 		ctx.fill();
 
-		ctx.lineWidth = isHover ? 1.4 : 1;
-		ctx.strokeStyle = isHover ? this.themeColors.textMuted : this.themeColors.border;
+		ctx.lineWidth = isHighlight ? 1.8 : isHover ? 1.4 : 1;
+		ctx.strokeStyle = isHighlight
+			? this.themeColors.accent
+			: isHover
+			? this.themeColors.textMuted
+			: this.themeColors.border;
 		ctx.stroke();
 
 		// Скруглённый бейдж иконки слева (32x32)
@@ -1950,24 +1950,6 @@ private syncOverlayBadges(): void {
 		}
 	}
 
-	private drawWrappedText(
-		ctx: CanvasRenderingContext2D,
-		text: string,
-		cx: number,
-		cy: number,
-		maxWidth: number,
-		lineHeight: number,
-		maxLines = 3
-	): void {
-		const lines = this.wrapLines(ctx, text, maxWidth);
-		const visible = lines.slice(0, maxLines);
-		const startY = cy - ((visible.length - 1) * lineHeight) / 2;
-		visible.forEach((line, idx) => {
-			const finalLine = idx === maxLines - 1 && lines.length > maxLines ? this.clipText(ctx, line, maxWidth) : line;
-			ctx.fillText(finalLine, cx, startY + idx * lineHeight);
-		});
-	}
-
 	private clipText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
 		if (ctx.measureText(text).width <= maxWidth) return text;
 		let clipped = text;
@@ -1975,14 +1957,5 @@ private syncOverlayBadges(): void {
 			clipped = clipped.slice(0, -1);
 		}
 		return clipped + "…";
-	}
-
-	private hexToRgba(hex: string, alpha: number): string {
-		const clean = hex.replace("#", "");
-		if (clean.length !== 6) return `rgba(156, 131, 232, ${alpha})`;
-		const r = parseInt(clean.slice(0, 2), 16);
-		const g = parseInt(clean.slice(2, 4), 16);
-		const b = parseInt(clean.slice(4, 6), 16);
-		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 	}
 }

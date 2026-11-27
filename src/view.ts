@@ -1,10 +1,9 @@
-import { FuzzySuggestModal, ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
+import { FuzzyMatch, FuzzySuggestModal, ItemView, Modal, Notice, TFile, TFolder, WorkspaceLeaf, normalizePath, setIcon } from "obsidian";
 
 interface FocusTrackerApi {
 	openFocusModal?: (opts?: { initialProject?: string }) => void;
 }
 import { BubbleCanvasEngine, BubbleNode, DropTargetInfo, NavLevel } from "./canvas";
-import { extractImagesFromNote } from "./inspector/sceneStore";
 import { NoteSchemaOverlay } from "./inspector/canvasOverlay";
 import type Hub3DPlugin from "./main";
 import { AREA_NAME, Note3D, PRESET_PROGRAMS, PRESET_TOPICS, mapTopic, topicParts } from "./types";
@@ -63,6 +62,96 @@ class IconImagePickerModal extends FuzzySuggestModal<TFile> {
 
 	public onChooseItem(item: TFile): void {
 		this.onChoose(item);
+	}
+}
+
+class NoteSearchModal extends FuzzySuggestModal<Note3D> {
+	private notes: Note3D[];
+	private onJump: (note: Note3D) => void;
+	private onOpenNote: (note: Note3D, newTab: boolean) => void;
+	private onInspect: (note: Note3D) => void;
+
+	constructor(
+		app: ItemView["app"],
+		notes: Note3D[],
+		actions: {
+			onJump: (note: Note3D) => void;
+			onOpen: (note: Note3D, newTab: boolean) => void;
+			onInspect: (note: Note3D) => void;
+		}
+	) {
+		super(app);
+		this.notes = [...notes].sort((a, b) => b.mtime - a.mtime);
+		this.onJump = actions.onJump;
+		this.onOpenNote = actions.onOpen;
+		this.onInspect = actions.onInspect;
+		this.setPlaceholder("Поиск по 3D-заметкам, программам и темам…");
+		this.setInstructions([
+			{ command: "↵", purpose: "перейти на холсте" },
+			{ command: "Ctrl + клик", purpose: "открыть заметку" },
+			{ command: "Shift + клик", purpose: "открыть схему" }
+		]);
+	}
+
+	public getItems(): Note3D[] {
+		return this.notes;
+	}
+
+	public getItemText(item: Note3D): string {
+		const progs = item.programs.length ? item.programs.join(" ") : "Вне программ";
+		const topics = item.topicPaths.length ? item.topicPaths.join(" ") : "без темы";
+		return `${item.title} ${progs} ${topics}`;
+	}
+
+	public renderSuggestion(match: FuzzyMatch<Note3D>, el: HTMLElement): void {
+		const note = match.item;
+		el.addClass("hub3d-search-item");
+
+		const main = el.createDiv({ cls: "hub3d-search-main" });
+		main.createDiv({ cls: "hub3d-search-title", text: note.title });
+		const prog = note.programs[0] || "Вне программ";
+		const topic = note.topicPaths[0] || "без темы";
+		main.createDiv({ cls: "hub3d-search-meta", text: `${prog} / ${topic}` });
+
+		const actions = el.createDiv({ cls: "hub3d-search-actions" });
+
+		const openBtn = actions.createEl("button", { type: "button", cls: "hub3d-search-act-btn" });
+		setIcon(openBtn, "file-text");
+		openBtn.title = "Открыть заметку";
+		openBtn.addEventListener("mousedown", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+		});
+		openBtn.addEventListener("click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.close();
+			this.onOpenNote(note, e.ctrlKey || e.metaKey);
+		});
+
+		const schemaBtn = actions.createEl("button", { type: "button", cls: "hub3d-search-act-btn" });
+		setIcon(schemaBtn, "network");
+		schemaBtn.title = "Открыть схему в инспекторе";
+		schemaBtn.addEventListener("mousedown", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+		});
+		schemaBtn.addEventListener("click", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.close();
+			this.onInspect(note);
+		});
+	}
+
+	public onChooseItem(item: Note3D, evt: MouseEvent | KeyboardEvent): void {
+		if (evt.shiftKey) {
+			this.onInspect(item);
+		} else if (evt.ctrlKey || evt.metaKey) {
+			this.onOpenNote(item, false);
+		} else {
+			this.onJump(item);
+		}
 	}
 }
 
@@ -164,6 +253,7 @@ private popoverMode: ActivePopoverMode = "none";
 	private stylePopoverEl: HTMLElement | null = null;
 	private styleOutsideHandler?: (e: PointerEvent) => void;
 	private stylePasteHandler?: (e: ClipboardEvent) => void;
+	private dirtyRefresh = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Hub3DPlugin) {
 		super(leaf);
@@ -289,10 +379,23 @@ if (e.key === "Escape" && this.stylePopoverEl) {
 				return;
 			}
 			if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName || "")) return;
+			const isActiveHub = this.app.workspace.getActiveViewOfType(Hub3DView) === this;
+			if (isActiveHub && (((e.ctrlKey || e.metaKey) && e.code === "KeyF") || (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === "/"))) {
+				e.preventDefault();
+				this.openNoteSearch();
+				return;
+			}
 			if (e.key === "Escape" || e.key === "Backspace") {
 				this.navigateUp();
 			}
 		});
+
+		this.registerEvent(
+			this.app.workspace.on("active-leaf-change", () => this.flushPendingRefresh())
+		);
+		this.registerEvent(
+			this.app.workspace.on("layout-change", () => this.flushPendingRefresh())
+		);
 
 		this.refresh();
 	}
@@ -307,8 +410,26 @@ public async onClose(): Promise<void> {
 	}
 
 	public refresh(): void {
+		this.dirtyRefresh = false;
 		this.notes = this.plugin.scanner.scan();
 		this.renderAll();
+	}
+
+	public markDirtyOrRefresh(): void {
+		if (this.inspectorOverlay || !this.containerEl.isShown()) {
+			this.dirtyRefresh = true;
+			return;
+		}
+		this.refresh();
+	}
+
+	private flushPendingRefresh(): void {
+		if (this.inspectorOverlay || !this.containerEl.isShown()) return;
+		if (this.dirtyRefresh) {
+			this.refresh();
+		} else {
+			this.engine?.requestRender();
+		}
 	}
 
 	public navigateUp(): void {
@@ -323,6 +444,34 @@ public async onClose(): Promise<void> {
 			this.engine?.resetCamera();
 			this.renderAll();
 		}
+	}
+
+	private openNoteSearch(): void {
+		if (this.notes.length === 0) {
+			new Notice("3D-заметок пока нет");
+			return;
+		}
+		new NoteSearchModal(this.app, this.notes, {
+			onJump: (note) => this.navigateToNote(note),
+			onOpen: (note, newTab) => {
+				void this.app.workspace.openLinkText(note.path, "", newTab);
+			},
+			onInspect: (note) => this.openNodeInspector(note)
+		}).open();
+	}
+
+	private navigateToNote(note: Note3D): void {
+		this.closePopover();
+		this.closeNoteStylePopover();
+		const currentProg = this.level.program;
+		const targetProg =
+			currentProg && currentProg !== "__none__" && note.programs.includes(currentProg)
+				? currentProg
+				: note.programs[0] || "__none__";
+		const targetTopic = note.topicPaths[0] || "";
+		this.level = { program: targetProg, topicPath: targetTopic };
+		this.renderAll();
+		this.engine?.focusNote(note.path);
 	}
 
 private renderAll(): void {
@@ -792,6 +941,15 @@ this.engine?.setData(
 			text: `${this.notes.length} зам. · ${programsCount} прогр.`
 		});
 
+		// Кнопка быстрого поиска по 3D-заметкам
+		const searchBtn = this.topIslandEl.createEl("button", {
+			cls: "hub3d-crumb-btn hub3d-crumb-icon-btn"
+		});
+		setIcon(searchBtn, "search");
+		searchBtn.title = "Быстрый поиск 3D-заметки (Ctrl+F или /)";
+		searchBtn.setAttribute("aria-label", "Быстрый поиск 3D-заметки");
+		searchBtn.addEventListener("click", () => this.openNoteSearch());
+
 // Кнопка запуска фокуса (my-focus-tracker)
 		const focusProject = this.getFocusProjectName();
 		const focusBtn = this.topIslandEl.createEl("button", {
@@ -874,8 +1032,9 @@ private async moveNoteToTopic(note: Note3D, targetTopicPath: string): Promise<vo
 				`Точно ли вы хотите удалить заметку «${noteRef.title}» в корзину?`,
 				async () => {
 					await this.app.vault.trash(noteRef.file, true);
-					delete this.plugin.settings.bubblePositions[node.id];
-					await this.plugin.saveSettings();
+					if (this.plugin.cleanupNotePath(noteRef.path)) {
+						await this.plugin.saveSettings();
+					}
 					this.refresh();
 					new Notice(`Заметка «${noteRef.title}» удалена`);
 				}
@@ -933,16 +1092,14 @@ private async moveNoteToTopic(note: Note3D, targetTopicPath: string): Promise<vo
 	}
 
 public openInspectorForFile(file: TFile): void {
-		const images = extractImagesFromNote(this.app, file);
-		if (images.length === 0) {
-			new Notice(`В заметке «${file.basename}» не найдено скриншотов`);
-			return;
-		}
-this.inspectorOverlay?.destroy();
+		this.inspectorOverlay?.destroy();
 		this.engine?.setPaused(true);
 		this.inspectorOverlay = new NoteSchemaOverlay(this.app, this.contentEl, file, () => {
 			this.inspectorOverlay = null;
 			this.engine?.setPaused(false);
+			if (this.dirtyRefresh) {
+				this.refresh();
+			}
 		});
 		this.inspectorOverlay.open();
 	}
@@ -1021,44 +1178,9 @@ private openNodeInspector(note: Note3D): void {
 		}
 
 		await this.app.fileManager.renameFile(note.file, newPath);
-
-		const oldSuffix = `::${oldPath}`;
-		const newSuffix = `::${newPath}`;
-		const remapId = (id: string) =>
-			id.endsWith(oldSuffix) ? id.slice(0, -oldSuffix.length) + newSuffix : id;
-
-		const existingStyle = this.plugin.settings.noteStyles[oldPath];
-		if (existingStyle) {
-			this.plugin.settings.noteStyles[newPath] = existingStyle;
-			delete this.plugin.settings.noteStyles[oldPath];
+		if (this.plugin.remapNotePath(oldPath, newPath)) {
+			await this.plugin.saveSettings();
 		}
-
-		for (const key of Object.keys(this.plugin.settings.bubblePositions)) {
-			if (key.endsWith(oldSuffix)) {
-				const pos = this.plugin.settings.bubblePositions[key];
-				if (pos) this.plugin.settings.bubblePositions[remapId(key)] = pos;
-				delete this.plugin.settings.bubblePositions[key];
-			}
-		}
-
-		for (const link of this.plugin.settings.bubbleLinks) {
-			link.from = remapId(link.from);
-			link.to = remapId(link.to);
-		}
-
-		for (const key of Object.keys(this.plugin.settings.clusterNames)) {
-			const parts = key.split("|");
-			if (parts.some((p) => p.endsWith(oldSuffix))) {
-				const nextKey = parts.map(remapId).sort().join("|");
-				if (nextKey !== key) {
-					const title = this.plugin.settings.clusterNames[key];
-					if (title !== undefined) this.plugin.settings.clusterNames[nextKey] = title;
-					delete this.plugin.settings.clusterNames[key];
-				}
-			}
-		}
-
-		await this.plugin.saveSettings();
 		this.closeNoteStylePopover();
 		this.refresh();
 		new Notice(`Переименовано: «${nextTitle}»`);

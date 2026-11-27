@@ -9,6 +9,7 @@ rawTopics: string[];
 topics: string[];
 topicPaths: string[];
 hasImages: boolean;
+hasSchema: boolean;
 source: string;
 pinned: boolean;
 mtime: number;

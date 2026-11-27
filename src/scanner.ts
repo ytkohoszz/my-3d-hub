@@ -7,9 +7,23 @@ const DEFAULT_TEMPLATE_FOLDERS = ["шаблоны", "templates"];
 export class Vault3DScanner {
 private app: App;
 private pendingPatches = new Map<string, Record<string, unknown>>();
+private knownPaths = new Set<string>();
 
 constructor(app: App) {
 this.app = app;
+}
+
+public isKnownPath(path: string): boolean {
+return this.knownPaths.has(path) || this.pendingPatches.has(path);
+}
+
+public isRelevantFile(file: TFile): boolean {
+if (file.extension !== "md") return false;
+if (this.isKnownPath(file.path)) return true;
+const cache = this.app.metadataCache.getFileCache(file);
+const fm = cache?.frontmatter;
+if (!fm) return false;
+return this.toList(fm["направление"]).includes(AREA_NAME);
 }
 
 public setPending(path: string, patch: Record<string, unknown>): void {
@@ -55,12 +69,14 @@ rawTopics,
 topics,
 topicPaths,
 hasImages: this.checkHasImages(cache),
+hasSchema: this.checkHasSchema(fm),
 source: this.extractSource(fm["источник"]),
 pinned: fm["закреплено"] === true,
 mtime: file.stat.mtime
 });
 }
 
+this.knownPaths = new Set(notes.map((n) => n.path));
 return notes;
 }
 
@@ -96,6 +112,14 @@ const ext = (cleanLink.split(".").pop() ?? "").toLowerCase();
 if (IMAGE_EXTENSIONS.has(ext)) return true;
 }
 return false;
+}
+
+private checkHasSchema(fm: Record<string, unknown>): boolean {
+const raw = fm["схемы_аннотации"];
+if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+return Object.values(raw as Record<string, unknown>).some(
+(entry) => Boolean(entry && typeof entry === "object" && (entry as Record<string, unknown>)["deleted"] !== true)
+);
 }
 
 private isTemplate(file: TFile, fm: Record<string, unknown>): boolean {

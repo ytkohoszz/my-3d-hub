@@ -45,6 +45,7 @@ import {
 	TextAnchor,
 	TextEditorCloseReason,
 	TextEditorLayout,
+	clampFontSize,
 	fitTextElementToContent,
 	getAnchoredTextX,
 	getContainerTextBox,
@@ -152,6 +153,8 @@ protected rootEl!: HTMLElement;
 	private vpHeight = 1;
 	private dpr = 1;
 	private spacePressed = false;
+	private gridPattern: CanvasPattern | null = null;
+	private gridPatternStep = 0;
 private keyHandler?: (e: KeyboardEvent) => void;
 	private keyUpHandler?: (e: KeyboardEvent) => void;
 	private pasteHandler?: (e: ClipboardEvent) => void;
@@ -295,7 +298,7 @@ private rebuildSlides(): void {
 			});
 		}
 
-		if (next.length === 0 && this.images.length > 0) {
+		if (next.length === 0) {
 			const key = "__board_1__";
 			if (!this.scenes.has(key)) this.scenes.set(key, createEmptyScene(this.accentColor));
 			next.push({ key, label: "1", kind: "board" });
@@ -450,22 +453,28 @@ private rebuildSlides(): void {
 		this.imgPopoverEl.empty();
 		this.imgPopoverEl.createDiv({ cls: "hub3d-pop-header", text: "Добавить картинку на схему" });
 
-		const list = this.imgPopoverEl.createDiv({ cls: "hub3d-insp-img-list" });
-		for (const item of this.images) {
-			const row = list.createEl("button", { cls: "hub3d-insp-img-row" });
-			const thumb = row.createEl("img", { cls: "hub3d-insp-img-thumb" });
-			thumb.src = item.resourcePath;
-			row.createSpan({ cls: "hub3d-insp-img-name", text: item.name });
-			row.addEventListener("click", () => {
-				this.toggleImagePopover(false);
-				void this.addImageElementToScene(item.path, item.resourcePath);
+		if (this.images.length > 0) {
+			const list = this.imgPopoverEl.createDiv({ cls: "hub3d-insp-img-list" });
+			for (const item of this.images) {
+				const row = list.createEl("button", { cls: "hub3d-insp-img-row" });
+				const thumb = row.createEl("img", { cls: "hub3d-insp-img-thumb" });
+				thumb.src = item.resourcePath;
+				row.createSpan({ cls: "hub3d-insp-img-name", text: item.name });
+				row.addEventListener("click", () => {
+					this.toggleImagePopover(false);
+					void this.addImageElementToScene(item.path, item.resourcePath);
+				});
+			}
+			this.imgPopoverEl.createDiv({
+				cls: "hub3d-pop-sub",
+				text: "Также можно вставить скриншот из буфера через Ctrl+V"
+			});
+		} else {
+			this.imgPopoverEl.createDiv({
+				cls: "hub3d-pop-sub",
+				text: "В заметке нет встроенных картинок. Вставь скриншот из буфера через Ctrl+V"
 			});
 		}
-
-		this.imgPopoverEl.createDiv({
-			cls: "hub3d-pop-sub",
-			text: "Также можно вставить скриншот из буфера через Ctrl+V"
-		});
 	}
 
 	private async addImageElementToScene(vaultPath: string, resourceUrl: string): Promise<void> {
@@ -668,14 +677,27 @@ private handleResize(): void {
 		if (grid) {
 			let step = gridSize || 24;
 			while (step * safeZoom < 14) step *= 2;
-			const scaled = step * safeZoom;
-			const ox = ((scrollX * safeZoom) % scaled + scaled) % scaled;
-			const oy = ((effScrollY * safeZoom) % scaled + scaled) % scaled;
-			ctx.fillStyle = "rgba(180, 188, 210, 0.12)";
-			for (let x = ox; x < vpWidth; x += scaled) {
-				for (let y = oy; y < vpHeight; y += scaled) {
-					ctx.fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
+			const tileStep = Math.max(14, Math.round(step * safeZoom));
+			if (!this.gridPattern || this.gridPatternStep !== tileStep) {
+				const tile = this.doc.createElement("canvas");
+				tile.width = tileStep;
+				tile.height = tileStep;
+				const tCtx = tile.getContext("2d");
+				if (tCtx) {
+					tCtx.fillStyle = "rgba(180, 188, 210, 0.12)";
+					tCtx.fillRect(0.3, 0.3, 1.4, 1.4);
+					this.gridPattern = ctx.createPattern(tile, "repeat");
+					this.gridPatternStep = tileStep;
 				}
+			}
+			if (this.gridPattern) {
+				const ox = ((scrollX * safeZoom) % tileStep + tileStep) % tileStep;
+				const oy = ((effScrollY * safeZoom) % tileStep + tileStep) % tileStep;
+				ctx.save();
+				ctx.translate(ox - 1, oy - 1);
+				ctx.fillStyle = this.gridPattern;
+				ctx.fillRect(-tileStep, -tileStep, vpWidth + tileStep * 2, vpHeight + tileStep * 2);
+				ctx.restore();
 			}
 		}
 
@@ -1068,8 +1090,8 @@ const cur = this.interaction;
 				const h = cur.handle;
 				if (!isResizeHandle(h.kind)) return;
 				const ptr = { x: world.x + (h.x - cur.startWorld.x), y: world.y + (h.y - cur.startWorld.y) };
-				const single = getSelectionFrameElements(Array.from(cur.startElements.values()));
-				const elSnap = single.length === 1 ? single[0] : undefined;
+				const targets = getSelectionFrameElements(Array.from(cur.startElements.values()));
+				const elSnap = targets.length === 1 ? targets[0] : undefined;
 				const ctx = getMeasureContext(this.doc);
 
 				if (elSnap && elSnap.type === "text" && !elSnap.containerId && ctx) {
@@ -1078,7 +1100,7 @@ const cur = this.interaction;
 				} else if (elSnap && !elSnap.points) {
 					const el = this.getElementById(elSnap.id);
 					if (el) {
-const next = resizeBoxFromHandle(
+						const next = resizeBoxFromHandle(
 							{ x: elSnap.x, y: elSnap.y, width: elSnap.width, height: elSnap.height },
 							elSnap.angle || 0,
 							h.kind,
@@ -1090,6 +1112,64 @@ const next = resizeBoxFromHandle(
 						el.width = next.width;
 						el.height = next.height;
 						el.updated = Date.now();
+					}
+				} else if (targets.length > 1) {
+					const sb = cur.startBounds;
+					const hasImage = targets.some((t) => t.type === "image");
+					const nextBox = resizeBoxFromHandle(
+						{ x: sb.minX, y: sb.minY, width: sb.width, height: sb.height },
+						0,
+						h.kind,
+						ptr,
+						{ keepRatio: e.shiftKey || hasImage, minSize: 12 }
+					);
+					const sx = nextBox.width / Math.max(1, sb.width);
+					const sy = nextBox.height / Math.max(1, sb.height);
+					const now = Date.now();
+
+					for (const snap of targets) {
+						const el = this.getElementById(snap.id);
+						if (!el || el.locked) continue;
+
+						if (isPathElement(snap)) {
+							const pts = snap.points ?? [{ x: 0, y: 0 }, { x: snap.width, y: snap.height }];
+							el.x = 0;
+							el.y = 0;
+							el.points = pts.map((p) => ({
+								x: nextBox.x + (snap.x + p.x - sb.minX) * sx,
+								y: nextBox.y + (snap.y + p.y - sb.minY) * sy
+							}));
+							normalizeElementBounds(el);
+							el.updated = now;
+						} else if (snap.type === "text" && !snap.containerId && ctx) {
+							const nextFontSize = clampFontSize(snap.fontSize * Math.min(sx, sy));
+							const autoResize = snap.autoResize === true;
+							const metrics = measureTextBlock(
+								ctx,
+								snap.text ?? "",
+								nextFontSize,
+								snap.fontFamily,
+								autoResize ? null : getTextWrapWidth(Math.max(4, snap.width * sx))
+							);
+							el.x = nextBox.x + (snap.x - sb.minX) * sx;
+							el.y = nextBox.y + (snap.y - sb.minY) * sy;
+							el.fontSize = nextFontSize;
+							el.width = metrics.width;
+							el.height = metrics.height;
+							el.updated = now;
+						} else {
+							const oldCx = snap.x + snap.width / 2;
+							const oldCy = snap.y + snap.height / 2;
+							const newCx = nextBox.x + (oldCx - sb.minX) * sx;
+							const newCy = nextBox.y + (oldCy - sb.minY) * sy;
+							const newW = Math.max(4, snap.width * sx);
+							const newH = Math.max(4, snap.height * sy);
+							el.x = newCx - newW / 2;
+							el.y = newCy - newH / 2;
+							el.width = newW;
+							el.height = newH;
+							el.updated = now;
+						}
 					}
 				}
 				updateBoundElements(this.scene.elements);
