@@ -56,7 +56,7 @@ import {
 
 type Interaction =
 	| { kind: "pan"; pointerId: number; lastX: number; lastY: number }
-	| { kind: "create"; pointerId: number; startWorld: ScenePoint; elementId: string; didMove: boolean }
+	| { kind: "create"; pointerId: number; startWorld: ScenePoint; elementId: string; didMove: boolean; startMagnet: boolean }
 	| {
 			kind: "move";
 			pointerId: number;
@@ -116,9 +116,11 @@ protected rootEl!: HTMLElement;
 	private dockEl!: HTMLElement;
 	private imgPopoverEl!: HTMLDivElement;
 	private imgPickBtn!: HTMLButtonElement;
+	private magnetBtn!: HTMLButtonElement;
 	private undoBtn!: HTMLButtonElement;
 	private redoBtn!: HTMLButtonElement;
 	private toolBtns = new Map<CanvasToolId, HTMLButtonElement>();
+	private arrowMagnetEnabled = false;
 
 	protected images: NodeImageItem[] = [];
 	private slides: SlideItem[] = [];
@@ -410,7 +412,12 @@ private rebuildSlides(): void {
 		setIcon(this.redoBtn, "redo-2");
 		this.redoBtn.addEventListener("click", () => this.redo());
 
-this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
+		this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
+
+		this.magnetBtn = this.dockEl.createEl("button", { cls: "hub3d-dock-btn hub3d-insp-tool-btn" });
+		this.magnetBtn.title = "Магнит стрелок (M или удержание Alt)";
+		setIcon(this.magnetBtn, "magnet");
+		this.magnetBtn.addEventListener("click", () => this.setArrowMagnet(!this.arrowMagnetEnabled));
 
 		this.imgPickBtn = this.dockEl.createEl("button", { cls: "hub3d-dock-btn hub3d-insp-tool-btn" });
 		this.imgPickBtn.title = "Добавить картинку на эту схему";
@@ -577,8 +584,25 @@ this.dockEl.createSpan({ cls: "hub3d-insp-dock-sep" });
 		for (const [id, btn] of this.toolBtns.entries()) {
 			btn.toggleClass("is-active", id === tool);
 		}
+		if (tool !== "arrow" && tool !== "line" && this.bindingHighlight) {
+			this.bindingHighlight = null;
+			this.scheduleRender();
+		}
 		this.updateCursor();
 		this.syncFloatAnimation();
+	}
+
+	private isArrowMagnetActive(altKey = false): boolean {
+		return this.arrowMagnetEnabled !== altKey;
+	}
+
+	private setArrowMagnet(enabled: boolean): void {
+		this.arrowMagnetEnabled = enabled;
+		this.magnetBtn?.toggleClass("is-active", enabled);
+		if (!enabled && this.bindingHighlight) {
+			this.bindingHighlight = null;
+			this.scheduleRender();
+		}
 	}
 
 	private syncFloatAnimation(): void {
@@ -665,19 +689,20 @@ private handleResize(): void {
 		if (img && img.complete && img.naturalWidth > 0) {
 			const w = img.naturalWidth;
 			const h = img.naturalHeight;
-ctx.save();
+			const r = Math.min(10, w / 2, h / 2);
+			ctx.save();
 			ctx.beginPath();
-			ctx.roundRect(-6, -6, w + 12, h + 12, 14);
-			ctx.fillStyle = "rgba(0, 0, 0, 0.18)";
-			ctx.fill();
-			ctx.lineWidth = 1 / safeZoom;
-			ctx.strokeStyle = "rgba(160, 166, 184, 0.28)";
-			ctx.stroke();
-
-			ctx.beginPath();
-			ctx.roundRect(0, 0, w, h, 10);
+			ctx.roundRect(0, 0, w, h, r);
 			ctx.clip();
 			ctx.drawImage(img, 0, 0, w, h);
+			ctx.restore();
+
+			ctx.save();
+			ctx.beginPath();
+			ctx.roundRect(0, 0, w, h, r);
+			ctx.lineWidth = 1.5;
+			ctx.strokeStyle = this.accentColor;
+			ctx.stroke();
 			ctx.restore();
 		}
 
@@ -924,7 +949,14 @@ ctx.strokeRect(el.x, el.y, el.width, el.height);
 				const el = createSceneElement(elType, world, this.scene.appState.currentStyle, this.getNextZIndex());
 				this.scene.elements.push(el);
 				this.selectedIds = new Set([el.id]);
-				this.interaction = { kind: "create", pointerId: e.pointerId, startWorld: world, elementId: el.id, didMove: false };
+				this.interaction = {
+					kind: "create",
+					pointerId: e.pointerId,
+					startWorld: world,
+					elementId: el.id,
+					didMove: false,
+					startMagnet: this.isArrowMagnetActive(e.altKey)
+				};
 				this.onSelectionOrSceneUpdated();
 				this.scheduleRender();
 			}
@@ -957,7 +989,9 @@ const cur = this.interaction;
 						this.canvasEl.style.cursor = hit ? "move" : "default";
 					}
 				} else if (this.activeTool === "arrow" || this.activeTool === "line") {
-					const m = findNearestBindingTarget(world, this.scene.elements, undefined, 24 / Math.max(0.1, this.scene.appState.zoom));
+					const m = this.isArrowMagnetActive(e.altKey)
+						? findNearestBindingTarget(world, this.scene.elements, undefined, 24 / Math.max(0.1, this.scene.appState.zoom))
+						: null;
 					if ((m?.element ?? null) !== this.bindingHighlight) {
 						this.bindingHighlight = m?.element ?? null;
 						this.scheduleRender();
@@ -982,7 +1016,9 @@ const cur = this.interaction;
 				if (el) {
 					updateElementFromDrag(el, cur.startWorld, world, e.shiftKey);
 					if (isPathElement(el)) {
-						const m = findNearestBindingTarget(world, this.scene.elements, el.id, 24 / Math.max(0.1, this.scene.appState.zoom));
+						const m = this.isArrowMagnetActive(e.altKey)
+							? findNearestBindingTarget(world, this.scene.elements, el.id, 24 / Math.max(0.1, this.scene.appState.zoom))
+							: null;
 						this.bindingHighlight = m?.element ?? null;
 					}
 					this.scheduleRender();
@@ -1082,11 +1118,18 @@ const next = resizeBoxFromHandle(
 			if (cur.kind === "point") {
 				const el = this.getElementById(cur.elementId);
 				if (el?.points?.[cur.pointIndex]) {
+					const isEndpoint = cur.pointIndex === 0 || cur.pointIndex === el.points.length - 1;
 					if (cur.pointIndex === 0) el.startBinding = null;
 					if (cur.pointIndex === el.points.length - 1) el.endBinding = null;
 					el.points[cur.pointIndex] = { x: world.x - el.x, y: world.y - el.y };
 					normalizeElementBounds(el);
 					updateBoundElements(this.scene.elements);
+					if (isPathElement(el) && isEndpoint && this.isArrowMagnetActive(e.altKey)) {
+						const m = findNearestBindingTarget(world, this.scene.elements, el.id, 24 / Math.max(0.1, this.scene.appState.zoom));
+						this.bindingHighlight = m?.element ?? null;
+					} else {
+						this.bindingHighlight = null;
+					}
 					this.scheduleRender();
 				}
 				return;
@@ -1121,13 +1164,20 @@ const next = resizeBoxFromHandle(
 					finalizeElementSize(el, cur.startWorld, cur.didMove);
 					if (isPathElement(el) && el.points && el.points.length >= 2) {
 						const maxD = 24 / Math.max(0.1, this.scene.appState.zoom);
-						const sM = findNearestBindingTarget(cur.startWorld, this.scene.elements, el.id, maxD);
+						const endMagnet = this.isArrowMagnetActive(e.altKey);
+						const sM = cur.startMagnet
+							? findNearestBindingTarget(cur.startWorld, this.scene.elements, el.id, maxD)
+							: null;
 						const last = el.points[el.points.length - 1]!;
-						const eM = findNearestBindingTarget({ x: el.x + last.x, y: el.y + last.y }, this.scene.elements, el.id, maxD);
+						const eM = endMagnet
+							? findNearestBindingTarget({ x: el.x + last.x, y: el.y + last.y }, this.scene.elements, el.id, maxD)
+							: null;
 						el.startBinding = sM?.binding ?? null;
 						el.endBinding = eM?.binding ?? null;
-						updateBoundElements(this.scene.elements);
-						normalizeElementBounds(el);
+						if (el.startBinding || el.endBinding) {
+							updateBoundElements(this.scene.elements);
+							normalizeElementBounds(el);
+						}
 					}
 					this.commitScene();
 				} else {
@@ -1141,13 +1191,18 @@ const next = resizeBoxFromHandle(
 			} else if (cur.kind === "point") {
 				const el = this.getElementById(cur.elementId);
 				if (el && isPathElement(el) && el.points) {
+					const useMagnet = this.isArrowMagnetActive(e.altKey);
 					const maxD = 24 / Math.max(0.1, this.scene.appState.zoom);
 					if (cur.pointIndex === 0) {
 						const p0 = el.points[0]!;
-						el.startBinding = findNearestBindingTarget({ x: el.x + p0.x, y: el.y + p0.y }, this.scene.elements, el.id, maxD)?.binding ?? null;
+						el.startBinding = useMagnet
+							? findNearestBindingTarget({ x: el.x + p0.x, y: el.y + p0.y }, this.scene.elements, el.id, maxD)?.binding ?? null
+							: null;
 					} else if (cur.pointIndex === el.points.length - 1) {
 						const pL = el.points[el.points.length - 1]!;
-						el.endBinding = findNearestBindingTarget({ x: el.x + pL.x, y: el.y + pL.y }, this.scene.elements, el.id, maxD)?.binding ?? null;
+						el.endBinding = useMagnet
+							? findNearestBindingTarget({ x: el.x + pL.x, y: el.y + pL.y }, this.scene.elements, el.id, maxD)?.binding ?? null
+							: null;
 					}
 					updateBoundElements(this.scene.elements);
 				}
@@ -1509,6 +1564,9 @@ const next = resizeBoxFromHandle(
 			if (t) {
 				e.preventDefault();
 				this.setTool(t);
+			} else if (e.code === "KeyM") {
+				e.preventDefault();
+				this.setArrowMagnet(!this.arrowMagnetEnabled);
 			} else if ((e.key === "Delete" || e.key === "Backspace") && this.selectedIds.size > 0) {
 				e.preventDefault();
 				this.deleteSelection();
@@ -1518,6 +1576,9 @@ const next = resizeBoxFromHandle(
 			if (e.code === "Space") {
 				this.spacePressed = false;
 				this.updateCursor();
+			} else if ((e.key === "Alt" || e.code === "AltLeft" || e.code === "AltRight") && !this.arrowMagnetEnabled && this.bindingHighlight) {
+				this.bindingHighlight = null;
+				this.scheduleRender();
 			}
 		};
 this.pasteHandler = (e: ClipboardEvent) => {

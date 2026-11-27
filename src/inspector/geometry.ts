@@ -477,7 +477,12 @@ export function findNearestBindingTarget(
 		const cy = el.y + el.height / 2;
 		const perim = computeShapePerimeterPoint(el, pt, 4);
 		const local = unrotatePoint(pt.x, pt.y, cx, cy, el.angle || 0);
-		const inside = local.x >= el.x && local.x <= el.x + el.width && local.y >= el.y && local.y <= el.y + el.height;
+		const inside =
+			el.type !== "image" &&
+			local.x >= el.x &&
+			local.x <= el.x + el.width &&
+			local.y >= el.y &&
+			local.y <= el.y + el.height;
 		const dist = inside ? 0 : Math.hypot(pt.x - perim.x, pt.y - perim.y);
 
 		if (dist < bestDist) {

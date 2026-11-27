@@ -186,11 +186,12 @@ window.addEventListener("focus", this.focusWakeHandler);
 		this.startLoop();
 	}
 
-	public setPaused(paused: boolean): void {
+public setPaused(paused: boolean): void {
 		this.paused = paused;
 		if (!paused) {
 			this.lastTime = performance.now();
 			this.lastRenderTime = 0;
+			this.render();
 		}
 	}
 
@@ -483,7 +484,6 @@ nextNodes.push(this.createNode({
 untaggedNotes.forEach((note, idx) => {
 				const id = `note::${prog}::root::${note.path}`;
 				const pos = this.getInitialPos(id, idx, untaggedNotes.length, 290);
-				const customColor = this.noteStyles[note.path]?.color;
 				nextNodes.push(this.createNode({
 					id,
 					kind: "note",
@@ -491,7 +491,7 @@ untaggedNotes.forEach((note, idx) => {
 					subLabel: "без темы",
 					detailLine: "",
 					count: 1,
-					color: customColor || "#d85b57",
+					color: "#d85b57",
 					radius: 54,
 					x: pos.x,
 					y: pos.y,
@@ -573,7 +573,6 @@ const directList = Array.from(directNotes.values()).sort((a, b) => b.mtime - a.m
 directList.forEach((note, idx) => {
 				const id = `note::${prog}::${currentPrefix}::${note.path}`;
 				const pos = this.getInitialPos(id, idx, directList.length, noteRingRadius);
-				const customColor = this.noteStyles[note.path]?.color;
 				nextNodes.push(this.createNode({
 					id,
 					kind: "note",
@@ -581,7 +580,7 @@ directList.forEach((note, idx) => {
 					subLabel: "",
 					detailLine: "",
 					count: 1,
-					color: customColor || (note.pinned ? "#e5a158" : progColor),
+					color: note.pinned ? "#e5a158" : progColor,
 					radius: 54,
 					x: pos.x,
 					y: pos.y,
@@ -823,9 +822,10 @@ const prev = prevByKey.get(key);
 		this.clusters = nextClusters;
 	}
 
-	private rebuildActionBadges(): void {
+private rebuildActionBadges(): void {
 		this.overlayLayer.empty();
 		this.actionBadges.clear();
+		this.lastBadgeTransforms.clear();
 
 		for (const node of this.nodes) {
 			if (node.kind === "note" && node.note && node.note.hasImages) {
@@ -844,6 +844,8 @@ const prev = prevByKey.get(key);
 				this.actionBadges.set(node.id, btn);
 			}
 		}
+
+		this.syncOverlayBadges();
 	}
 
 private handleResize(): void {
@@ -1918,7 +1920,7 @@ const maxTextW = node.note?.hasImages ? w - 84 : w - 64;
 		} else {
 			ctx.beginPath();
 			ctx.arc(ix + iconSize / 2, node.y, 3.5, 0, Math.PI * 2);
-			ctx.fillStyle = style?.color || this.themeColors.textMuted;
+			ctx.fillStyle = this.themeColors.textMuted;
 			ctx.fill();
 		}
 

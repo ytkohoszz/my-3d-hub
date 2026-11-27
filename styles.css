@@ -944,31 +944,31 @@
 	gap: 10px;
 }
 
-.hub3d-style-swatches {
-	display: grid;
-	grid-template-columns: repeat(8, 1fr);
-	gap: 5px;
+.hub3d-style-rename-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
 }
 
-.hub3d-style-swatch {
-	appearance: none;
-	width: 22px;
-	min-width: 0 !important;
-	height: 22px;
-	min-height: 0 !important;
-	padding: 0 !important;
-	justify-self: center;
-	box-sizing: border-box;
-	border-radius: 50%;
-	border: none;
-	box-shadow: inset 0 0 0 1px var(--trans-faint-30, var(--background-modifier-border));
-	cursor: pointer;
-	transition: transform var(--anim-super-smooth, 75ms ease-out);
+.hub3d-style-rename-input {
+	flex: 1;
+	min-width: 0;
+	height: 30px;
 }
 
-.hub3d-style-swatch.is-active {
-	box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 3.5px var(--interactive-accent);
-	transform: scale(1.1);
+.hub3d-style-rename-btn {
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.hub3d-style-rename-btn svg.svg-icon {
+	width: 14px;
+	height: 14px;
 }
 
 .hub3d-style-icons {
@@ -1003,8 +1003,45 @@
 .hub3d-style-actions {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	gap: 6px;
+}
+
+.hub3d-style-action-btn {
+	flex: 1;
+	min-width: 0;
+	padding: 0 8px;
+	font-size: 0.78em;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+}
+
+.hub3d-style-btn-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.hub3d-style-btn-icon svg.svg-icon {
+	width: 14px;
+	height: 14px;
+}
+
+.hub3d-style-reset-btn {
+	width: 30px;
+	height: 30px;
+	padding: 0;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+}
+
+.hub3d-style-reset-btn svg.svg-icon {
+	width: 14px;
+	height: 14px;
 }
 
 /* ========================================================= */
@@ -1037,16 +1074,17 @@ body.is-tablet .hub3d-note-style-popover {
 	gap: 12px;
 }
 
-body.is-mobile .hub3d-style-swatches,
-body.is-tablet .hub3d-style-swatches {
-	grid-template-columns: repeat(4, 1fr);
-	gap: 10px;
+body.is-mobile .hub3d-style-rename-input,
+body.is-tablet .hub3d-style-rename-input {
+	height: 38px;
 }
 
-body.is-mobile .hub3d-style-swatch,
-body.is-tablet .hub3d-style-swatch {
-	width: 34px;
-	height: 34px;
+body.is-mobile .hub3d-style-rename-btn,
+body.is-tablet .hub3d-style-rename-btn,
+body.is-mobile .hub3d-style-reset-btn,
+body.is-tablet .hub3d-style-reset-btn {
+	width: 38px;
+	height: 38px;
 }
 
 body.is-mobile .hub3d-style-icon-btn,

@@ -25,7 +25,6 @@ export interface BubbleLink {
 }
 
 export interface NoteStyle {
-	color?: string;
 	icon?: string;
 	iconImage?: string;
 }

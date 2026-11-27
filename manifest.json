@@ -1,7 +1,7 @@
 {
     "id":  "my-3d-hub",
     "name":  "3D Spatial Hub",
-    "version":  "0.3.5",
+    "version":  "(0 3 5[0]).3.6",
     "minAppVersion":  "1.5.0",
     "description":  "Интерактивный холст плавающих пузырей для базы знаний по 3D-графике и приёмам.",
     "author":  "ytkohoszz",

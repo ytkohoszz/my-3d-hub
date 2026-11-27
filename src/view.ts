@@ -10,16 +10,47 @@ import type Hub3DPlugin from "./main";
 import { AREA_NAME, Note3D, PRESET_PROGRAMS, PRESET_TOPICS, mapTopic, topicParts } from "./types";
 
 const ICON_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "webp", "svg", "gif"]);
-const NOTE_STYLE_COLORS = ["#4aab80", "#e5a158", "#599ed6", "#9c83e8", "#d85b57", "#69b5aa", "#d4c05a", "#cbd5e1"];
 const NOTE_STYLE_ICONS = ["🌲", "🌿", "📷", "💡", "🧊", "🌊", "🔥", "⚙️", "🎨", "✨"];
 
 class IconImagePickerModal extends FuzzySuggestModal<TFile> {
 	private onChoose: (file: TFile) => void;
+	private onPasteImage?: (blob: Blob) => void;
+	private pasteHandler?: (e: ClipboardEvent) => void;
 
-	constructor(app: ItemView["app"], onChoose: (file: TFile) => void) {
+	constructor(
+		app: ItemView["app"],
+		onChoose: (file: TFile) => void,
+		onPasteImage?: (blob: Blob) => void
+	) {
 		super(app);
 		this.onChoose = onChoose;
-		this.setPlaceholder("Выбери картинку-иконку из хранилища…");
+		this.onPasteImage = onPasteImage;
+		this.setPlaceholder("Выбери картинку из хранилища или нажми Ctrl+V…");
+	}
+
+	public onOpen(): void {
+		super.onOpen();
+		if (this.onPasteImage) {
+			this.pasteHandler = (e: ClipboardEvent) => {
+				const items = Array.from(e.clipboardData?.items ?? []);
+				const imgItem = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+				const file = imgItem?.getAsFile();
+				if (!file) return;
+				e.preventDefault();
+				e.stopPropagation();
+				this.close();
+				this.onPasteImage?.(file);
+			};
+			document.addEventListener("paste", this.pasteHandler, true);
+		}
+	}
+
+	public onClose(): void {
+		if (this.pasteHandler) {
+			document.removeEventListener("paste", this.pasteHandler, true);
+			this.pasteHandler = undefined;
+		}
+		super.onClose();
 	}
 
 	public getItems(): TFile[] {
@@ -132,6 +163,7 @@ private popoverMode: ActivePopoverMode = "none";
 	private inspectorOverlay: NoteSchemaOverlay | null = null;
 	private stylePopoverEl: HTMLElement | null = null;
 	private styleOutsideHandler?: (e: PointerEvent) => void;
+	private stylePasteHandler?: (e: ClipboardEvent) => void;
 
 	constructor(leaf: WorkspaceLeaf, plugin: Hub3DPlugin) {
 		super(leaf);
@@ -924,8 +956,112 @@ private openNodeInspector(note: Note3D): void {
 			window.removeEventListener("pointerdown", this.styleOutsideHandler, true);
 			this.styleOutsideHandler = undefined;
 		}
+		if (this.stylePasteHandler) {
+			document.removeEventListener("paste", this.stylePasteHandler, true);
+			this.stylePasteHandler = undefined;
+		}
 		this.stylePopoverEl?.remove();
 		this.stylePopoverEl = null;
+	}
+
+	private async savePastedIconImage(note: Note3D, blob: Blob): Promise<string> {
+		const extMap: Record<string, string> = {
+			"image/png": "png",
+			"image/jpeg": "jpg",
+			"image/webp": "webp",
+			"image/gif": "gif",
+			"image/svg+xml": "svg"
+		};
+		const ext = extMap[blob.type] || "png";
+		const fileName = `hub3d-icon-${Date.now()}.${ext}`;
+		const targetPath = await this.app.fileManager.getAvailablePathForAttachment(fileName, note.path);
+		const slashIdx = targetPath.lastIndexOf("/");
+		if (slashIdx > 0) {
+			await this.ensureFolderExists(targetPath.slice(0, slashIdx));
+		}
+		const buf = await blob.arrayBuffer();
+		await this.app.vault.createBinary(targetPath, buf);
+		return targetPath;
+	}
+
+	private async readImageFromClipboard(): Promise<Blob | null> {
+		if (!navigator.clipboard?.read) return null;
+		const items = await navigator.clipboard.read();
+		for (const item of items) {
+			const imgType = item.types.find((t) => t.startsWith("image/"));
+			if (imgType) {
+				return await item.getType(imgType);
+			}
+		}
+		return null;
+	}
+
+	private async renameNote(note: Note3D, rawTitle: string): Promise<void> {
+		const nextTitle = rawTitle.trim();
+		if (!nextTitle) {
+			new Notice("Введи название заметки");
+			return;
+		}
+		if (nextTitle === note.title) {
+			this.closeNoteStylePopover();
+			return;
+		}
+		if (/[\\/:*?"<>|\x00-\x1f]/.test(nextTitle)) {
+			new Notice('В названии нельзя использовать \\ / : * ? " < > |');
+			return;
+		}
+
+		const oldPath = note.path;
+		const parentPath = note.file.parent?.path && note.file.parent.path !== "/" ? `${note.file.parent.path}/` : "";
+		const newPath = normalizePath(`${parentPath}${nextTitle}.${note.file.extension}`);
+
+		if (this.app.vault.getAbstractFileByPath(newPath)) {
+			new Notice("Заметка с таким именем уже существует");
+			return;
+		}
+
+		await this.app.fileManager.renameFile(note.file, newPath);
+
+		const oldSuffix = `::${oldPath}`;
+		const newSuffix = `::${newPath}`;
+		const remapId = (id: string) =>
+			id.endsWith(oldSuffix) ? id.slice(0, -oldSuffix.length) + newSuffix : id;
+
+		const existingStyle = this.plugin.settings.noteStyles[oldPath];
+		if (existingStyle) {
+			this.plugin.settings.noteStyles[newPath] = existingStyle;
+			delete this.plugin.settings.noteStyles[oldPath];
+		}
+
+		for (const key of Object.keys(this.plugin.settings.bubblePositions)) {
+			if (key.endsWith(oldSuffix)) {
+				const pos = this.plugin.settings.bubblePositions[key];
+				if (pos) this.plugin.settings.bubblePositions[remapId(key)] = pos;
+				delete this.plugin.settings.bubblePositions[key];
+			}
+		}
+
+		for (const link of this.plugin.settings.bubbleLinks) {
+			link.from = remapId(link.from);
+			link.to = remapId(link.to);
+		}
+
+		for (const key of Object.keys(this.plugin.settings.clusterNames)) {
+			const parts = key.split("|");
+			if (parts.some((p) => p.endsWith(oldSuffix))) {
+				const nextKey = parts.map(remapId).sort().join("|");
+				if (nextKey !== key) {
+					const title = this.plugin.settings.clusterNames[key];
+					if (title !== undefined) this.plugin.settings.clusterNames[nextKey] = title;
+					delete this.plugin.settings.clusterNames[key];
+				}
+			}
+		}
+
+		await this.plugin.saveSettings();
+		this.closeNoteStylePopover();
+		this.refresh();
+		new Notice(`Переименовано: «${nextTitle}»`);
 	}
 
 	private openNoteStylePopover(note: Note3D, clientX: number, clientY: number): void {
@@ -937,7 +1073,7 @@ private openNodeInspector(note: Note3D): void {
 		const styles = this.plugin.settings.noteStyles;
 		const current = styles[note.path] || {};
 
-		const updateStyle = (patch: { color?: string; icon?: string; iconImage?: string } | null) => {
+		const updateStyle = (patch: { icon?: string; iconImage?: string } | null) => {
 			if (patch === null) {
 				delete styles[note.path];
 			} else {
@@ -950,19 +1086,31 @@ private openNodeInspector(note: Note3D): void {
 			this.renderAll();
 		};
 
-		// 1. Цвет карточки
-		const swRow = pop.createDiv({ cls: "hub3d-style-swatches" });
-		for (const c of NOTE_STYLE_COLORS) {
-			const sw = swRow.createEl("button", {
-				cls: "hub3d-style-swatch" + (current.color === c ? " is-active" : "")
-			});
-			sw.style.backgroundColor = c;
-			sw.addEventListener("click", () => {
-				updateStyle({ color: c });
-				swRow.querySelectorAll(".hub3d-style-swatch").forEach((el) => el.removeClass("is-active"));
-				sw.addClass("is-active");
-			});
-		}
+		// 1. Переименование заметки
+		const renameRow = pop.createDiv({ cls: "hub3d-style-rename-row" });
+		const renameInput = renameRow.createEl("input", {
+			type: "text",
+			value: note.title,
+			cls: "hub3d-pop-input hub3d-style-rename-input",
+			placeholder: "Название заметки…"
+		});
+		const renameBtn = renameRow.createEl("button", {
+			cls: "hub3d-dock-btn is-primary hub3d-style-rename-btn"
+		});
+		setIcon(renameBtn, "check");
+		renameBtn.title = "Переименовать заметку (Enter)";
+		renameBtn.setAttribute("aria-label", "Переименовать заметку");
+
+		const submitRename = () => {
+			void this.renameNote(note, renameInput.value);
+		};
+		renameBtn.addEventListener("click", submitRename);
+		renameInput.addEventListener("keydown", (e) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				submitRename();
+			}
+		});
 
 		// 2. Быстрые 3D-иконки
 		const iconRow = pop.createDiv({ cls: "hub3d-style-icons" });
@@ -978,17 +1126,60 @@ private openNodeInspector(note: Note3D): void {
 			});
 		}
 
-		// 3. Выбор своей картинки / Сброс
+		const applyPastedBlob = async (blob: Blob) => {
+			try {
+				const savedPath = await this.savePastedIconImage(note, blob);
+				updateStyle({ iconImage: savedPath });
+				this.closeNoteStylePopover();
+				new Notice("Иконка вставлена из буфера");
+			} catch (err: unknown) {
+				new Notice("Не удалось вставить картинку: " + (err instanceof Error ? err.message : String(err)));
+			}
+		};
+
+		// 3. Выбор картинки, вставка из буфера и сброс
 		const actions = pop.createDiv({ cls: "hub3d-style-actions" });
-		const imgBtn = actions.createEl("button", { cls: "hub3d-dock-btn", text: "🖼 Картинка…" });
+
+		const imgBtn = actions.createEl("button", { cls: "hub3d-dock-btn hub3d-style-action-btn" });
+		setIcon(imgBtn.createSpan({ cls: "hub3d-style-btn-icon" }), "image");
+		imgBtn.createSpan({ text: "Картинка" });
+		imgBtn.title = "Выбрать из хранилища (или нажать Ctrl+V)";
 		imgBtn.addEventListener("click", () => {
 			this.closeNoteStylePopover();
-			new IconImagePickerModal(this.app, (file) => {
-				updateStyle({ iconImage: file.path });
-			}).open();
+			new IconImagePickerModal(
+				this.app,
+				(file) => {
+					updateStyle({ iconImage: file.path });
+				},
+				(blob) => {
+					void applyPastedBlob(blob);
+				}
+			).open();
 		});
 
-		const resetBtn = actions.createEl("button", { cls: "hub3d-dock-btn", text: "Сбросить" });
+		const pasteBtn = actions.createEl("button", { cls: "hub3d-dock-btn hub3d-style-action-btn" });
+		setIcon(pasteBtn.createSpan({ cls: "hub3d-style-btn-icon" }), "clipboard-paste");
+		pasteBtn.createSpan({ text: "Вставить" });
+		pasteBtn.title = "Вставить картинку из буфера (Ctrl+V)";
+		pasteBtn.addEventListener("click", () => {
+			void (async () => {
+				try {
+					const blob = await this.readImageFromClipboard();
+					if (!blob) {
+						new Notice("В буфере обмена нет картинки");
+						return;
+					}
+					await applyPastedBlob(blob);
+				} catch {
+					new Notice("Нажми Ctrl+V, чтобы вставить картинку из буфера");
+				}
+			})();
+		});
+
+		const resetBtn = actions.createEl("button", { cls: "hub3d-dock-btn hub3d-style-reset-btn" });
+		setIcon(resetBtn, "rotate-ccw");
+		resetBtn.title = "Сбросить иконку";
+		resetBtn.setAttribute("aria-label", "Сбросить иконку");
 		resetBtn.addEventListener("click", () => {
 			updateStyle(null);
 			this.closeNoteStylePopover();
@@ -1002,6 +1193,17 @@ private openNodeInspector(note: Note3D): void {
 		const top = Math.max(12, Math.min(rootRect.height - popH - 12, clientY - rootRect.top - 12));
 		pop.style.left = `${Math.round(left)}px`;
 		pop.style.top = `${Math.round(top)}px`;
+
+		this.stylePasteHandler = (e: ClipboardEvent) => {
+			const items = Array.from(e.clipboardData?.items ?? []);
+			const imgItem = items.find((it) => it.kind === "file" && it.type.startsWith("image/"));
+			const file = imgItem?.getAsFile();
+			if (!file) return;
+			e.preventDefault();
+			e.stopPropagation();
+			void applyPastedBlob(file);
+		};
+		document.addEventListener("paste", this.stylePasteHandler, true);
 
 		this.styleOutsideHandler = (e: PointerEvent) => {
 			if (!this.stylePopoverEl?.contains(e.target as Node)) {
